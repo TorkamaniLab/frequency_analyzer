@@ -25,11 +25,14 @@ python {} [options] <inputfile>
 Options
 -------
 -h --help       : Display this message.
+   --format     : Another help message detailing the format of
+                  inputfiles.
 -o --outputfile : Write output to a file instead of to the
                   console. (Data is formatted for csv)
 -i --inputfile  : Specifies that the next value is the desired
                   input filename. Use this option in place of the
                   input filename argument.
+-n --no-header  : Indicates that the inputfile contains no header.
 -s --sloppy     : Input times should be treated as roundable to
                   ~10ms ignoring single digit ms. If turned off, data will
                   be interpolated to fit. Defaults to True
@@ -49,10 +52,22 @@ Options
                   http://developer.getpebble.com/guides/pebble-apps/sensors/accelerometer/
 """.format(os.path.basename(__file__))
 
+frmt="""
+inputfile
+---------
 
-all_args = 'ho:i:s:va:pet:'
+Time,X,Y,Z\\n
+12345,54,343,232\\n
+12365,32,232,556\\n
+...
+
+Optionally, you may omit the header if the --no-header
+option is provided.
+"""
+
+all_args = 'ho:i:s:va:pet:n'
 long_args = ['help', 'verbose', 'inputfile=', 'outputfile=', 'sloppy=',
-    'angle=', 'print', 'save', 'time=']
+    'angle=', 'print', 'save', 'time=', 'format', 'no-header']
 
 g = 9.81 # m/s**2
 R = {
@@ -144,6 +159,7 @@ def main(args, kwargs):
     print_results = False
     save_data = False
     angles = []
+    no_header = False
 
     try:
         opts, args = getopt.getopt(sys.argv[1:], all_args, long_args)
@@ -159,11 +175,16 @@ def main(args, kwargs):
     for o, a in opts:
         if o in ('-h', '--help'):
             print(usage)
-            sys.exit()
+            sys.exit(0)
+        if o in ('--format'):
+            print(frmt)
+            sys.exit(0)
         elif o in ('-o', '--outputfile'):
             output_filename = a
         elif o in ('-i', '--inputfile'):
             input_filename = a
+        elif o in ('-n', '--no-header'):
+            no_header = True
         elif o in ('-s', '--sloppy'):
             sloppy = True if a.lower() in ['true', 'yes', '1'] else False
         elif o in ('-v', '--verbose'):
@@ -192,8 +213,8 @@ def main(args, kwargs):
     with open(input_filename) as f:
         # Get and sanitize the data
         data = []
-        # Ignore first line
-        first_line = f.readline()
+        if not no_header:
+            first_line = f.readline()
         for line in f:
             t, x, y, z = line.split(',')
             data.append((int(t), int(x), int(y), int(z)))
