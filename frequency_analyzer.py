@@ -158,7 +158,7 @@ def main(args, kwargs):
     verbose = False
     print_results = False
     save_data = False
-    angles = []
+    angles = [('z', 180)]
     no_header = False
 
     try:
