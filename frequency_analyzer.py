@@ -8,6 +8,7 @@ from math import cos, sin, radians
 from bin.sanitizer import sanitize, time_unit, sloppy
 from bin.categorizer import categorize, fourier_transform
 from bin.timer import timeit
+from bin.complex_utilities import conjugate_filter
 
 usage = """
 Description
@@ -295,7 +296,7 @@ def main(args, kwargs):
     #    - Any other features you think might be interesting.
     # TODO
     for bucket, data in buckets.iteritems():
-        freq = data['Frequencies']
+        freq = conjugate_filter(data['Frequencies'])
         data['Max Freq. (Hz)'] = '' if len(freq) == 0 else max(freq).real
         data['Avg. Freq. (Hz)'] = '' if len(freq) == 0 else sum(freq).real / float(len(freq))
         data['Total Movement (m)'] = sum([1.0 / f for f in freq]).real
