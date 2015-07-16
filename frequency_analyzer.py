@@ -54,9 +54,9 @@ Options
                   front(y), and right side(x).
                   http://developer.getpebble.com/guides/pebble-apps/sensors/accelerometer/
    --no-gravity : The effects of the Earth's gravity will not be factored out of the
-                   acceleration data, nor will the device's frame of reference be
-                   transformed to the Earth's inertial frame.
-                   Use this if no transformation angles are known.
+                  acceleration data, nor will the device's frame of reference be
+                  transformed to the Earth's inertial frame.
+                  Use this if no transformation angles are known.
 """.format(os.path.basename(__file__))
 
 frmt="""
