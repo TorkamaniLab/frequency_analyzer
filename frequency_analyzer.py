@@ -5,10 +5,13 @@ from __future__ import print_function
 import sys, getopt, os
 from math import cos, sin, radians
 
-from bin.sanitizer import sanitize, time_unit, sloppy
+import matplotlib.pyplot as plt
+
+from bin.sanitizer import sanitize, sloppy
 from bin.categorizer import categorize, fourier_transform
 from bin.timer import timeit
 from bin.complex_utilities import conjugate_filter
+
 
 usage = """
 Description
@@ -40,10 +43,9 @@ Options
 -v --verbose    : Verbose output.
 -p --print      : Print results to stdout. If no output file is provided,
                   this option is set by default.
+-g --graph      : Shows the results visually in another window (using matplotlib).
 -e --save       : Save intermediate data (This option will create a number
                   of files in the cwd).
--t --time       : The unit of time that the raw data is in (milliseconds, seconds).
-                  Defaults to milliseconds.
 -a --angle      : The angle from the axis(es) to which gravity was acting.
                   Defaults to z. Order of angles is preserved and counted
                   as the order for translation. (e.x. z:15 or z:15,x:30)
@@ -66,9 +68,9 @@ Optionally, you may omit the header if the --no-header
 option is provided.
 """
 
-all_args = 'ho:i:s:va:pet:n'
+all_args = 'ho:i:s:va:pet:ng'
 long_args = ['help', 'verbose', 'inputfile=', 'outputfile=', 'sloppy=',
-    'angle=', 'print', 'save', 'time=', 'format', 'no-header']
+    'angle=', 'print', 'save', 'time=', 'format', 'no-header', 'graph']
 
 g = 9.81 # m/s**2
 R = {
@@ -161,6 +163,7 @@ def main(args, kwargs):
     save_data = False
     angles = [('z', 180)]
     no_header = False
+    graph = False
 
     try:
         opts, args = getopt.getopt(sys.argv[1:], all_args, long_args)
@@ -190,10 +193,10 @@ def main(args, kwargs):
             sloppy = True if a.lower() in ['true', 'yes', '1'] else False
         elif o in ('-v', '--verbose'):
             verbose = True
+        elif o in ('-g', '--graph'):
+            graph = True
         elif o in ('-p', '--print'):
             print_results = True
-        elif o in ('-t', '--time'):
-            time_unit = a
         elif o in ('-e', '--save'):
             save_data = True
         elif o in ('-a', '--angle'):
@@ -212,7 +215,6 @@ def main(args, kwargs):
     if input_filename is None:
         quit('No input file supplied. See --help for more information.')
     with open(input_filename) as f:
-        # Get and sanitize the data
         data = []
         if not no_header:
             first_line = f.readline()
@@ -288,24 +290,20 @@ def main(args, kwargs):
     for name, data in sorted_data.iteritems():
         buckets[name] = {'Frequencies': data}
 
-    # Now that we have data that can be analyzed, lets do some calculations.
-    # According to the goals:
-    #    x Total energy per frequency bin
-    #    x Maximum and average amplitude per frequency bin
-    #    x Total time of movement per frequency bin
-    #    - Any other features you think might be interesting.
-    # TODO
+    # Calculations
+    raw_freq = []
     for bucket, data in buckets.iteritems():
         freq = conjugate_filter(data['Frequencies'])
+        raw_freq = [(f.real, f.imag) for f in freq]
         data['Max Freq. (Hz)'] = '' if len(freq) == 0 else max(freq).real
         data['Avg. Freq. (Hz)'] = '' if len(freq) == 0 else sum(freq).real / float(len(freq))
         data['Total Movement (m)'] = sum([1.0 / f for f in freq]).real
         data['Total Energy / k (Jm/N))'] = sum([0.5 * f.imag for f in freq])
+        # TODO: Add more
 
-        # Do after
         data['Frequencies'] = ['{}λ:{}A'.format(f.real, f.imag) for f in freq]
 
-    # Write and print the data
+    # Output
     if output_filename is None or print_results:
         fields = []
         print('\nResults\n============')
@@ -329,6 +327,43 @@ def main(args, kwargs):
                         is list else str(data[field]))
             contents += '{}\n{}'.format(bucket, data_str)
         save(contents, output_filename)
+
+    if graph:
+        if verbose: print('Making graphs...')
+        # Convert to graphable data
+        freq, amp = [], []
+        for f, a in raw_freq:
+            freq.append(f)
+            amp.append(a)
+        dist, tim = [], []
+        for t, x, y, z in S_t:
+            dist.append((x, y, z))
+            tim.append(t)
+
+        # Subplots
+        fig = plt.figure()
+        # Frequency vs. Amplitude
+        plt.subplot(2, 1, 1)
+        plt.plot(freq, amp)
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Amplitude')
+        plt.title('Frequency vs. Amplitude')
+        plt.grid(True)
+        # Distance vs. Time
+        plt.subplot(2, 1, 2)
+        plt.plot(tim, dist)
+        plt.xlabel('Time (s)')
+        plt.ylabel('Distance (m)')
+        plt.title('Distance vs. Time')
+        plt.grid(True)
+        plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
+
+        # Layout
+        plt.subplots_adjust(hspace=0.35)
+
+        if save_data: plt.savefig('Freq_vs_Amp_and_x_vs_t.png')
+        plt.show()
+
     print('Done!')
 
 
