@@ -34,7 +34,7 @@ def sanitize(data):
         t, x, y, z = row
         t = t - start if not sloppy else sloppify(t - start)
         t = t / 1000.0 if time_unit == 'milliseconds' else t
-        res.append((t - start, x, y, z))
+        res.append((t, x, y, z))
     return res
 
 

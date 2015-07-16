@@ -16,8 +16,8 @@ from bin.complex_utilities import conjugate_filter
 usage = """
 Description
 -----------
-A utility for isolating and grouping frequencies
-found in raw accelerometer data.
+A utility for isolating, grouping, and visualizing
+frequencies found in raw accelerometer data.
 
 author: Brian Schrader
 since: 2015-07-13
@@ -53,6 +53,10 @@ Options
                   center of the screen, extending out of the top(z),
                   front(y), and right side(x).
                   http://developer.getpebble.com/guides/pebble-apps/sensors/accelerometer/
+   --no-gravity : The effects of the Earth's gravity will not be factored out of the
+                   acceleration data, nor will the device's frame of reference be
+                   transformed to the Earth's inertial frame.
+                   Use this if no transformation angles are known.
 """.format(os.path.basename(__file__))
 
 frmt="""
@@ -70,7 +74,8 @@ option is provided.
 
 all_args = 'ho:i:s:va:pet:ng'
 long_args = ['help', 'verbose', 'inputfile=', 'outputfile=', 'sloppy=',
-    'angle=', 'print', 'save', 'time=', 'format', 'no-header', 'graph']
+    'angle=', 'print', 'save', 'time=', 'format', 'no-header', 'graph',
+    'no-gravity']
 
 g = 9.81 # m/s**2
 R = {
@@ -164,6 +169,7 @@ def main(args, kwargs):
     angles = [('z', 180)]
     no_header = False
     graph = False
+    gravity = True
 
     try:
         opts, args = getopt.getopt(sys.argv[1:], all_args, long_args)
@@ -193,6 +199,9 @@ def main(args, kwargs):
             sloppy = True if a.lower() in ['true', 'yes', '1'] else False
         elif o in ('-v', '--verbose'):
             verbose = True
+        elif o in ('--no-gravity'):
+            gravity = False
+            print('Ignoring gravity')
         elif o in ('-g', '--graph'):
             graph = True
         elif o in ('-p', '--print'):
@@ -235,30 +244,32 @@ def main(args, kwargs):
         a_x, a_y, a_z = dim(x), dim(y), dim(z)
         A_t_d.append((t, a_x, a_y, a_z))
 
-    r = [0, 0, 9.81]
-
-    # Given a frame in which gravity acts along the Z axis, and given
-    # transformation angles, transform the device frame to the inertial frame.
-    if verbose: print('Generating transformation matrix...')
-    R_t = transformation_matrix(angles)
-    if save_data:
-        contents = ''
-        for r_t in R_t:
-            contents += '{}\n\n'.format('\n'.join([','.join([str(el) for el \
-                    in row]) for row in r_t]))
-        save(contents, 'Transformation_Matrices.csv')
-
-    if verbose: print('Transposing...')
     A_t = []
-    for a_t in A_t_d:
-        t, x, y, z = a_t
-        x_i, y_i, z_i = transpose((x, y, z), R_t)
-        A_t.append((t, x_i, y_i, z_i))
-    if save_data:
-        save('\n'.join([','.join([str(t), str(x), str(y), str(z)])\
-                for t, x, y, z in A_t]),
-                'Transposed_Sensor_Data.csv',
-                header='Time(s),X(m/s),Y(m/s),Z(m/s)')
+    if gravity:
+        r = [0, 0, 9.81]
+        # Given a frame in which gravity acts along the Z axis, and given
+        # transformation angles, transform the device frame to the inertial frame.
+        if verbose: print('Generating transformation matrix...')
+        R_t = transformation_matrix(angles)
+        if save_data:
+            contents = ''
+            for r_t in R_t:
+                contents += '{}\n\n'.format('\n'.join([','.join([str(el) for el \
+                        in row]) for row in r_t]))
+            save(contents, 'Transformation_Matrices.csv')
+
+        if verbose: print('Transposing...')
+        for a_t in A_t_d:
+            t, x, y, z = a_t
+            x_i, y_i, z_i = transpose((x, y, z), R_t)
+            A_t.append((t, x_i, y_i, z_i))
+        if save_data:
+            save('\n'.join([','.join([str(t), str(x), str(y), str(z)])\
+                    for t, x, y, z in A_t]),
+                    'Transposed_Sensor_Data.csv',
+                    header='Time(s),X(m/s^2),Y(m/s^2),Z(m/s^2)')
+    else:
+        A_t = A_t_d
 
     if verbose: print('Integrating...')
     V_t = integrate(A_t)
@@ -328,42 +339,40 @@ def main(args, kwargs):
             contents += '{}\n{}'.format(bucket, data_str)
         save(contents, output_filename)
 
-    if graph:
-        if verbose: print('Making graphs...')
-        # Convert to graphable data
-        freq, amp = [], []
-        for f, a in raw_freq:
-            freq.append(f)
-            amp.append(a)
-        dist, tim = [], []
-        for t, x, y, z in S_t:
-            dist.append((x, y, z))
-            tim.append(t)
+    if verbose: print('Making graphs...')
+    # Convert to graphable data
+    freq, amp = [], []
+    for f, a in raw_freq:
+        freq.append(f)
+        amp.append(a)
+    dist, tim = [], []
+    for t, x, y, z in S_t:
+        dist.append((x, y, z))
+        tim.append(t)
 
-        # Subplots
-        fig = plt.figure()
-        # Frequency vs. Amplitude
-        plt.subplot(2, 1, 1)
-        plt.plot(freq, amp)
-        plt.xlabel('Frequency (Hz)')
-        plt.ylabel('Amplitude')
-        plt.title('Frequency vs. Amplitude')
-        plt.grid(True)
-        # Distance vs. Time
-        plt.subplot(2, 1, 2)
-        plt.plot(tim, dist)
-        plt.xlabel('Time (s)')
-        plt.ylabel('Distance (m)')
-        plt.title('Distance vs. Time')
-        plt.grid(True)
-        plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
+    # Subplots
+    fig = plt.figure()
+    # Frequency vs. Amplitude
+    plt.subplot(2, 1, 1)
+    plt.plot(freq, amp)
+    plt.xlabel('Frequency (Hz)')
+    plt.ylabel('Amplitude')
+    plt.title('Frequency vs. Amplitude')
+    plt.grid(True)
+    # Distance vs. Time
+    plt.subplot(2, 1, 2)
+    plt.plot(tim, dist)
+    plt.xlabel('Time (s)')
+    plt.ylabel('Distance (m)')
+    plt.title('Distance vs. Time')
+    plt.grid(True)
+    plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
 
-        # Layout
-        plt.subplots_adjust(hspace=0.35)
+    # Layout
+    plt.subplots_adjust(hspace=0.4)
 
-        if save_data: plt.savefig('Freq_vs_Amp_and_x_vs_t.png')
-        plt.show()
-
+    if save_data: plt.savefig('Freq_vs_Amp_and_x_vs_t.png')
+    if graph: plt.show()
     print('Done!')
 
 
