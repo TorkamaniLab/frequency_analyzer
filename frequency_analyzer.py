@@ -373,7 +373,7 @@ def main(args, kwargs):
 
     if save_data: plt.savefig('Freq_vs_Amp_and_x_vs_t.png')
     if graph: plt.show()
-    print('Done!')
+    if verbose: print('Done!')
 
 
 if __name__ == '__main__':
