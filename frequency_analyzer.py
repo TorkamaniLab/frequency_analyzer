@@ -29,7 +29,7 @@ python {} [options] <inputfile>
 Options
 -------
 -h --help       : Display this message.
-   --format     : Another help message detailing the format of
+-f --format     : Another help message detailing the format of
                   inputfiles.
 -o --outputfile : Write output to a file instead of to the
                   console. (Data is formatted for csv)
@@ -53,7 +53,7 @@ Options
                   center of the screen, extending out of the top(z),
                   front(y), and right side(x).
                   http://developer.getpebble.com/guides/pebble-apps/sensors/accelerometer/
-   --no-gravity : The effects of the Earth's gravity will not be factored out of the
+-r --no-gravity : The effects of the Earth's gravity will not be factored out of the
                   acceleration data, nor will the device's frame of reference be
                   transformed to the Earth's inertial frame.
                   Use this if no transformation angles are known.
@@ -72,7 +72,7 @@ Optionally, you may omit the header if the --no-header
 option is provided.
 """
 
-all_args = 'ho:i:s:va:pet:ng'
+all_args = 'hvi:o:s:a:pet:fngr'
 long_args = ['help', 'verbose', 'inputfile=', 'outputfile=', 'sloppy=',
     'angle=', 'print', 'save', 'time=', 'format', 'no-header', 'graph',
     'no-gravity']
@@ -186,7 +186,7 @@ def main(args, kwargs):
         if o in ('-h', '--help'):
             print(usage)
             sys.exit(0)
-        if o in ('--format'):
+        if o in ('-f', '--format'):
             print(frmt)
             sys.exit(0)
         elif o in ('-o', '--outputfile'):
@@ -199,7 +199,7 @@ def main(args, kwargs):
             sloppy = True if a.lower() in ['true', 'yes', '1'] else False
         elif o in ('-v', '--verbose'):
             verbose = True
-        elif o in ('--no-gravity'):
+        elif o in ('r', '--no-gravity'):
             gravity = False
             print('Ignoring gravity')
         elif o in ('-g', '--graph'):
@@ -350,29 +350,31 @@ def main(args, kwargs):
         dist.append((x, y, z))
         tim.append(t)
 
-    # Subplots
-    fig = plt.figure()
-    # Frequency vs. Amplitude
-    plt.subplot(2, 1, 1)
-    plt.plot(freq, amp)
-    plt.xlabel('Frequency (Hz)')
-    plt.ylabel('Amplitude')
-    plt.title('Frequency vs. Amplitude')
-    plt.grid(True)
-    # Distance vs. Time
-    plt.subplot(2, 1, 2)
-    plt.plot(tim, dist)
-    plt.xlabel('Time (s)')
-    plt.ylabel('Distance (m)')
-    plt.title('Distance vs. Time')
-    plt.grid(True)
-    plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
+    try:
+        fig = plt.figure()
+        # Frequency vs. Amplitude
+        plt.subplot(2, 1, 1)
+        plt.plot(freq, amp)
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Amplitude')
+        plt.title('Frequency vs. Amplitude')
+        plt.grid(True)
+        # Distance vs. Time
+        plt.subplot(2, 1, 2)
+        plt.plot(tim, dist)
+        plt.xlabel('Time (s)')
+        plt.ylabel('Distance (m)')
+        plt.title('Distance vs. Time')
+        plt.grid(True)
+        plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
 
-    # Layout
-    plt.subplots_adjust(hspace=0.4)
+        # Layout
+        plt.subplots_adjust(hspace=0.4)
 
-    if save_data: plt.savefig('Freq_vs_Amp_and_x_vs_t.png')
-    if graph: plt.show()
+        if save_data: plt.savefig('Freq_vs_Amp_and_x_vs_t.png')
+        if graph: plt.show()
+    except Exception:
+        print('Displaying and generating graphs isn\'t supported.')
     if verbose: print('Done!')
 
 
