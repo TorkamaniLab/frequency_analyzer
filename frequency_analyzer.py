@@ -3,15 +3,15 @@
 
 from __future__ import print_function
 import sys, getopt, os
-from math import cos, sin, radians
 
 import matplotlib.pyplot as plt
 
-from bin.sanitizer import sanitize, sloppy
+from bin.sanitizer import sanitize
 from bin.categorizer import categorize, fourier_transform
 from bin.timer import timeit
 from bin.complex_utilities import conjugate_filter
-
+from bin.integrator import integrate
+from bin.matrix import transformation_matrix, transform
 
 usage = """
 Description
@@ -78,20 +78,6 @@ long_args = ['help', 'verbose', 'inputfile=', 'outputfile=', 'sloppy=',
     'no-gravity']
 
 g = 9.81 # m/s**2
-R = {
-        'x': [['1', '0', '0'],
-              ['0', 'cos(ang)', '-sin(ang)'],
-              ['0', 'sin(ang)', 'cos(ang)']
-            ],
-        'y': [['cos(ang)', '0', 'sin(ang)'],
-              ['0', '1', '0'],
-              ['-sin(ang)', '0', 'cos(ang)']
-            ],
-        'z': [['cos(ang)', '-sin(ang)', '0'],
-              ['sin(ang)', 'cos(ang)', '0'],
-              ['0', '0', '1']
-            ]
-    }
 
 
 def quit(msg, err=True):
@@ -107,61 +93,6 @@ def save(data, filename, header=''):
         f.write('{}\n{}'.format(header,str(data)))
 
 
-def trapezoid(x_0, t_0, x_1, t_1):
-    dt = abs(t_1 - t_0)
-    return 0.5 * dt * (x_1 + x_0)
-
-
-def integrate(dI_x):
-    """ Given a matrix of time dependent values,
-    integrate them based on the trapezoid rule.
-    """
-    I_x = []
-    for i in xrange(len(dI_x) - 1):
-        t_0, ax_0, ay_0, az_0 = dI_x[i]
-        t_1, ax_1, ay_1, az_1 = dI_x[i+1]
-
-        dv_x = trapezoid(ax_0, t_0, ax_1, t_1)
-        dv_y = trapezoid(ay_0, t_0, ay_1, t_1)
-        dv_z = trapezoid(az_0, t_0, az_1, t_1)
-
-        I_x.append((t_0, dv_x, dv_y, dv_z))
-    return I_x
-
-
-def transformation_matrix(angles):
-    """ Given an set of transformation angles,
-    generate a series of transformation matrices
-    """
-    R_t = []
-    for axis, ang in angles:
-        r_t = []
-        for row in R[axis]:
-            r_t_i = []
-            for el in row:
-                r_t_i.append(eval(el))
-            r_t.append(r_t_i)
-        R_t.append(r_t)
-    return R_t
-
-
-def transpose(v, R):
-    """ Given a 3d vector and a list of transformation
-    matrices, transpose the given vector using those matrices.
-    """
-    V = [0, 0, 0]
-    x, y, z = v
-    for r_x in R:
-        V_i = []
-        for a, b, c in r_x:
-            p_i = a*x + b*y + c*z
-            V_i.append(p_i)
-        V[0] += V_i[0]
-        V[1] += V_i[1]
-        V[2] += V_i[2]
-    return V
-
-
 def main(args, kwargs):
     verbose = False
     print_results = False
@@ -170,6 +101,8 @@ def main(args, kwargs):
     no_header = False
     graph = False
     gravity = True
+    time_unit = 'milliseconds'
+    sloppy = False
 
     try:
         opts, args = getopt.getopt(sys.argv[1:], all_args, long_args)
@@ -208,6 +141,8 @@ def main(args, kwargs):
             print_results = True
         elif o in ('-e', '--save'):
             save_data = True
+        elif o in ('-t', '--time'):
+            time_unit = a
         elif o in ('-a', '--angle'):
             axis_angles = [k for k in a.split(',')]
             for val in axis_angles:
@@ -230,7 +165,7 @@ def main(args, kwargs):
         for line in f:
             t, x, y, z = line.split(',')
             data.append((int(t), int(x), int(y), int(z)))
-    sanitized_data = sanitize(data)
+    sanitized_data = sanitize(data, sloppy=sloppy, time_unit=time_unit)
 
     # Remove the Gravity vector from the data using the provided axis
     # and angle.
@@ -261,12 +196,12 @@ def main(args, kwargs):
         if verbose: print('Transposing...')
         for a_t in A_t_d:
             t, x, y, z = a_t
-            x_i, y_i, z_i = transpose((x, y, z), R_t)
+            x_i, y_i, z_i = transform((x, y, z), R_t)
             A_t.append((t, x_i, y_i, z_i))
         if save_data:
             save('\n'.join([','.join([str(t), str(x), str(y), str(z)])\
                     for t, x, y, z in A_t]),
-                    'Transposed_Sensor_Data.csv',
+                    'Transformd_Sensor_Data.csv',
                     header='Time(s),X(m/s^2),Y(m/s^2),Z(m/s^2)')
     else:
         A_t = A_t_d
@@ -303,9 +238,9 @@ def main(args, kwargs):
 
     # Calculations
     raw_freq = []
-    for bucket, data in buckets.iteritems():
+    for bucket, data in sorted(buckets.iteritems()):
         freq = conjugate_filter(data['Frequencies'])
-        raw_freq = [(f.real, f.imag) for f in freq]
+        raw_freq.extend([(f.real, 2.0 * f.imag) for f in freq])
         data['Max Freq. (Hz)'] = '' if len(freq) == 0 else max(freq).real
         data['Avg. Freq. (Hz)'] = '' if len(freq) == 0 else sum(freq).real / float(len(freq))
         data['Total Movement (m)'] = sum([1.0 / f for f in freq]).real

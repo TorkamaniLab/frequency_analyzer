@@ -9,22 +9,7 @@ since: 2015-07-10
 from timer import timeit
 
 
-""" Should the sanitization be done so that
-the resulting intervals are rounded (sloppy)
-or exact?
-"""
-sloppy = True
-
-""" What time unit is the data given in.
-This unit effects the conversion during
-sanitization. Time will be converted to
-seconds.
-'seconds', 'milliseconds'
-"""
-time_unit = 'milliseconds'
-
-
-def sanitize(data):
+def sanitize(data, sloppy=True, time_unit='milliseconds'):
     """ Converts time in data from epoch to
     delta. Assumes the data is sorted.
     """
