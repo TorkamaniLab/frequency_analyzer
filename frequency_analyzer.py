@@ -65,7 +65,7 @@ Options
 -k --sig-factor : When calculating a significance factor to isolate relevant
                   frequencies, what should be the cutoff? This value is relative
                   to the max amplitude of the discovered frequencies.
-                  Max values are calculated per bin and are unique to a given axis.
+                  Max values are calculated per bin.
                   Values are from 0<x<1. The default is 0.9. (e.x. 0.85)
 """.format(os.path.basename(__file__))
 
@@ -282,8 +282,8 @@ def main(args, kwargs):
                 'y': max([y for f, x, y, z in freqs]) * sig_factor,
                 'z': max([z for f, x, y, z in freqs]) * sig_factor
                 }
-        if verbose: print('Cutoff Frequencies: X{} Y{} Z{}'.format(
-            sig_amp['x'], sig_amp['y'], sig_amp['z']))
+        if verbose: print('Cutoff: {} X:{} Y:{} Z:{}'.format(
+            name, sig_amp['x'], sig_amp['y'], sig_amp['z']))
         per_buck_sig_freq = []
         for f, x, y, z in freqs:
             if x > sig_amp['x']:
@@ -397,7 +397,7 @@ def main(args, kwargs):
         #plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
 
         # Layout
-        plt.subplots_adjust(hspace=0.4)
+        plt.subplots_adjust(hspace=0.7)
 
         if save_data: plt.savefig('Freq_vs_Amp_and_x_vs_t.png')
         if graph: plt.show()
