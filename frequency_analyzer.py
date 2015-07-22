@@ -22,7 +22,7 @@ A utility for isolating, grouping, and visualizing
 frequencies found in raw accelerometer data.
 
 author: Brian Schrader
-since: 2015-07-13
+since: 2015-07-22
 
 Usage
 -----
