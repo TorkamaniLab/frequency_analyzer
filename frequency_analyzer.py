@@ -5,9 +5,12 @@ from __future__ import print_function
 import sys, getopt, os
 
 import matplotlib.pyplot as plt
+from math import sqrt
+from numpy.fft import fftn as fourier_transform, fftfreq
+from numpy import absolute
 
 from bin.sanitizer import sanitize
-from bin.categorizer import categorize, fourier_transform
+from bin.categorizer import categorize
 from bin.timer import timeit
 from bin.complex_utilities import conjugate_filter
 from bin.integrator import integrate
@@ -166,6 +169,7 @@ def main(args, kwargs):
             t, x, y, z = line.split(',')
             data.append((int(t), int(x), int(y), int(z)))
     sanitized_data = sanitize(data, sloppy=sloppy, time_unit=time_unit)
+    sample_rate = 1 / sanitized_data[1][0] - sanitized_data[0][0]
 
     # Remove the Gravity vector from the data using the provided axis
     # and angle.
@@ -223,31 +227,40 @@ def main(args, kwargs):
 
     if verbose: print('Transforming...')
     data_sans_time = [(x, y, z) for t, x, y, z in S_t]
-    transformed_data = fourier_transform(data_sans_time)
+    amplitudes = absolute(fourier_transform(data_sans_time)) / len(data_sans_time)
 
-    # The data coming out of the fourier transform is
-    # for cycles/millisecond. We need this in cycles/sec.
-    for data in transformed_data:
-        data *= 1000.0
+    n = len(S_t)
+    freq_axis = fftfreq(n, d=1/sample_rate)
+    frequencies = []
+    for i, amp  in enumerate(amplitudes[-n:]):
+        x, y, z = amp
+        frequencies.append((freq_axis[i], x, y, z))
+
+    if save_data:
+        save('\n'.join([','.join([str(f), str(x), str(y), str(z)]) \
+                for f, x, y, z, in frequencies]),
+                'Frequencies.csv',
+                header='Frequency,X,Y,Z')
 
     if verbose: print('Filling buckets...')
-    sorted_data = categorize(transformed_data)
+    sorted_data = categorize(frequencies)
     buckets = {}
     for name, data in sorted_data.iteritems():
         buckets[name] = {'Frequencies': data}
 
     # Calculations
-    raw_freq = []
+    filtered_freq = []
     for bucket, data in sorted(buckets.iteritems()):
-        freq = conjugate_filter(data['Frequencies'])
-        raw_freq.extend([(f.real, 2.0 * f.imag) for f in freq])
-        data['Max Freq. (Hz)'] = '' if len(freq) == 0 else max(freq).real
-        data['Avg. Freq. (Hz)'] = '' if len(freq) == 0 else sum(freq).real / float(len(freq))
-        data['Total Movement (m)'] = sum([1.0 / f for f in freq]).real
-        data['Total Energy / k (Jm/N))'] = sum([0.5 * f.imag for f in freq])
+        filtered_freq.extend(data['Frequencies'])
+        freq = data['Frequencies']
+        just_freq = [f for f, x, y, z in freq]
+        data['Max Freq. (Hz)'] = '' if len(just_freq) == 0 else max(just_freq)
+        data['Avg. Freq. (Hz)'] = '' if len(just_freq) == 0 else sum(just_freq) / float(len(just_freq))
+        data['Total Movement (m)'] = sum([1.0 / f for f in just_freq])
+        #data['Total Energy / k (Jm/N))'] = sum([0.5 * f.imag for f in freq])
         # TODO: Add more
 
-        data['Frequencies'] = ['{}λ:{}A'.format(f.real, f.imag) for f in freq]
+        #data['Frequencies'] = ['{}λ:{}A'.format(f.real, f.imag) for f in freq]
 
     # Output
     if output_filename is None or print_results:
@@ -276,24 +289,37 @@ def main(args, kwargs):
 
     if verbose: print('Making graphs...')
     # Convert to graphable data
-    freq, amp = [], []
-    for f, a in raw_freq:
-        freq.append(f)
-        amp.append(a)
     dist, tim = [], []
     for t, x, y, z in S_t:
         dist.append((x, y, z))
         tim.append(t)
+    freqs, amps  = [], []
+    for f, x, y, z in filtered_freq:
+        freqs.append(f)
+        amps.append((x, y, z))
+    all_freqs, all_amps  = [], []
+    for f, x, y, z in frequencies:
+        all_freqs.append(f)
+        all_amps.append((x, y, z))
 
     try:
         fig = plt.figure()
+        # All Frequency vs. Amplitude
+        #plt.subplot(3, 1, 1)
+        #plt.plot(all_freqs, all_amps)
+        #plt.xlabel('Frequency (Hz)')
+        #plt.ylabel('Amplitude (m)')
+        #plt.title('All Found Frequency vs. Amplitude')
+        #plt.grid(True)
+        #plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
         # Frequency vs. Amplitude
         plt.subplot(2, 1, 1)
-        plt.plot(freq, amp)
+        plt.plot(freqs, amps)
         plt.xlabel('Frequency (Hz)')
-        plt.ylabel('Amplitude')
+        plt.ylabel('Amplitude (m)')
         plt.title('Frequency vs. Amplitude')
         plt.grid(True)
+        plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
         # Distance vs. Time
         plt.subplot(2, 1, 2)
         plt.plot(tim, dist)
@@ -308,7 +334,8 @@ def main(args, kwargs):
 
         if save_data: plt.savefig('Freq_vs_Amp_and_x_vs_t.png')
         if graph: plt.show()
-    except Exception:
+    except Exception as e:
+        print(e)
         print('Displaying and generating graphs isn\'t supported.')
     if verbose: print('Done!')
 

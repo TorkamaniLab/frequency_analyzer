@@ -30,13 +30,9 @@ def categorize(data):
     for name, floor, ceiling in buckets:
         bucket = []
 
-        for f_x, f_y, f_z in data:
-            if f_x <= ceiling and f_x >= floor:
-                bucket.append(f_x)
-            if f_y <= ceiling and f_y >= floor:
-                bucket.append(f_y)
-            if f_z <= ceiling and f_z >= floor:
-                bucket.append(f_z)
+        for x, f_x, f_y, f_z in data:
+            if x <= ceiling and x >= floor:
+                bucket.append((x, f_x, f_y, f_z))
         filled_buckets[name] = sorted(bucket)
     return filled_buckets
 
