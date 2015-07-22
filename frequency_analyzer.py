@@ -6,13 +6,12 @@ import sys, getopt, os
 
 import matplotlib.pyplot as plt
 from math import sqrt
-from numpy.fft import fftn as fourier_transform, fftfreq
+from numpy.fft import fftn, fftfreq
 from numpy import absolute
 
 from bin.sanitizer import sanitize
 from bin.categorizer import categorize
 from bin.timer import timeit
-from bin.complex_utilities import conjugate_filter
 from bin.integrator import integrate
 from bin.matrix import transformation_matrix, transform
 
@@ -135,7 +134,7 @@ def main(args, kwargs):
             sloppy = True if a.lower() in ['true', 'yes', '1'] else False
         elif o in ('-v', '--verbose'):
             verbose = True
-        elif o in ('r', '--no-gravity'):
+        elif o in ('-r', '--no-gravity'):
             gravity = False
             print('Ignoring gravity')
         elif o in ('-g', '--graph'):
@@ -227,7 +226,7 @@ def main(args, kwargs):
 
     if verbose: print('Transforming...')
     data_sans_time = [(x, y, z) for t, x, y, z in S_t]
-    amplitudes = absolute(fourier_transform(data_sans_time)) / len(data_sans_time)
+    amplitudes = absolute(fftn(data_sans_time)) / len(data_sans_time)
 
     n = len(S_t)
     freq_axis = fftfreq(n, d=1/sample_rate)
