@@ -7,10 +7,10 @@ import sys, getopt, os
 import matplotlib.pyplot as plt
 from math import sqrt
 from numpy.fft import fftn, fftfreq
-from numpy import absolute
+from numpy import absolute, mean
 
 from bin.sanitizer import sanitize
-from bin.categorizer import categorize
+from bin.categorizer import categorize, default_buckets
 from bin.timer import timeit
 from bin.integrator import integrate
 from bin.matrix import transformation_matrix, transform
@@ -59,6 +59,14 @@ Options
                   acceleration data, nor will the device's frame of reference be
                   transformed to the Earth's inertial frame.
                   Use this if no transformation angles are known.
+-b --bins       : Explicitly specify the frequency bins for the resulting
+                  analysis to be divided. All units are considered Hz.
+                  (e.x. 1.2-4.0,4.2-34.4,0.1-3)
+-k --sig-factor : When calculating a significance factor to isolate relevant
+                  frequencies, what should be the cutoff? This value is relative
+                  to the max amplitude of the discovered frequencies.
+                  Max values are calculated per bin and are unique to a given axis.
+                  Values are from 0<x<1. The default is 0.9. (e.x. 0.85)
 """.format(os.path.basename(__file__))
 
 frmt="""
@@ -74,10 +82,10 @@ Optionally, you may omit the header if the --no-header
 option is provided.
 """
 
-all_args = 'hvi:o:s:a:pet:fngr'
+all_args = 'hvi:o:s:a:pet:fngrb:k:'
 long_args = ['help', 'verbose', 'inputfile=', 'outputfile=', 'sloppy=',
     'angle=', 'print', 'save', 'time=', 'format', 'no-header', 'graph',
-    'no-gravity']
+    'no-gravity', 'bins=', 'sig-factor=']
 
 g = 9.81 # m/s**2
 
@@ -105,6 +113,8 @@ def main(args, kwargs):
     gravity = True
     time_unit = 'milliseconds'
     sloppy = False
+    bins = default_buckets
+    sig_factor = 0.9
 
     try:
         opts, args = getopt.getopt(sys.argv[1:], all_args, long_args)
@@ -130,6 +140,10 @@ def main(args, kwargs):
             input_filename = a
         elif o in ('-n', '--no-header'):
             no_header = True
+        elif o in ('-k', '--sig-factor'):
+            sig_factor = float(a)
+            if sig_factor < 0 or sig_factor >= 1:
+                quit('Significance factor must be 0<x<1. See --help for more information.')
         elif o in ('-s', '--sloppy'):
             sloppy = True if a.lower() in ['true', 'yes', '1'] else False
         elif o in ('-v', '--verbose'):
@@ -155,6 +169,12 @@ def main(args, kwargs):
                 quit('Angle must be a valid float. See --help for more information.')
             invalids = [True for ang, deg in angles if ang not in ['x', 'y', 'z'] or ang == '']
             if len(invalids) > 0: quit('Axis must be either "x, y, z". See --help.')
+        elif o in ('-b', '--bins'):
+            try:
+                raw_bins = [b.split('-') for b in a.split(',')]
+                bins = [('{}-{}Hz'.format(a,b), float(a), float(b)) for a, b in raw_bins]
+            except Exception as e:
+                quit("Incorrect bin syntax. See --help for more information.")
         else:
             quit("Undefined option. See --help for more information.")
 
@@ -241,13 +261,42 @@ def main(args, kwargs):
                 'Frequencies.csv',
                 header='Frequency,X,Y,Z')
 
+    if verbose: print('Using bins: {}'.format(', '.join(\
+            [str(a) for a, _, __ in bins])))
     if verbose: print('Filling buckets...')
-    sorted_data = categorize(frequencies)
+    sorted_data = categorize(frequencies, buckets=bins)
     buckets = {}
     for name, data in sorted_data.iteritems():
         buckets[name] = {'Frequencies': data}
 
     # Calculations
+
+    # Isolate the significant frequencies from the signal.
+    # Proposed solution: If an amplitude is above the mean amplitude.
+    # Gather a set of sig_freqs for later (set is faster to 'in' than list).
+    sig_freq = set()
+    for name, data in buckets.iteritems():
+        freqs = data['Frequencies']
+        sig_amp = {
+                'x': max([x for f, x, y, z in freqs]) * sig_factor,
+                'y': max([y for f, x, y, z in freqs]) * sig_factor,
+                'z': max([z for f, x, y, z in freqs]) * sig_factor
+                }
+        if verbose: print('Cutoff Frequencies: X{} Y{} Z{}'.format(
+            sig_amp['x'], sig_amp['y'], sig_amp['z']))
+        per_buck_sig_freq = []
+        for f, x, y, z in freqs:
+            if x > sig_amp['x']:
+                per_buck_sig_freq.append((f, 'x', x))
+            if y > sig_amp['y']:
+                per_buck_sig_freq.append((f, 'y', y))
+            if z > sig_amp['z']:
+                per_buck_sig_freq.append((f, 'z', z))
+        data['Significant Frequencies'] = per_buck_sig_freq
+        sig_freq.update(set(per_buck_sig_freq))
+
+    # Serialize
+    # TODO: This code is getting out of hand.
     filtered_freq = []
     for bucket, data in sorted(buckets.iteritems()):
         filtered_freq.extend(data['Frequencies'])
@@ -256,10 +305,11 @@ def main(args, kwargs):
         data['Max Freq. (Hz)'] = '' if len(just_freq) == 0 else max(just_freq)
         data['Avg. Freq. (Hz)'] = '' if len(just_freq) == 0 else sum(just_freq) / float(len(just_freq))
         data['Total Movement (m)'] = sum([1.0 / f for f in just_freq])
-        #data['Total Energy / k (Jm/N))'] = sum([0.5 * f.imag for f in freq])
+        data['Total Energy / k (Jm/N))'] = sum([0.5 * sum([x, y, z]) for f in freq])
         # TODO: Add more
-
-        #data['Frequencies'] = ['{}λ:{}A'.format(f.real, f.imag) for f in freq]
+        data['Significant Frequencies'] = ['F:{} {}:{}'.format(f, n.upper(), v) \
+                for f, n, v in data['Significant Frequencies']]
+        data['Frequencies'] = ['F:{} X:{} Y:{} Z:{}'.format(f, x, y, z) for f, x, y, z in freq]
 
     # Output
     if output_filename is None or print_results:
@@ -293,16 +343,50 @@ def main(args, kwargs):
         dist.append((x, y, z))
         tim.append(t)
     freqs, amps  = [], []
+    sig_freqs, sig_amps = [], []
     for f, x, y, z in filtered_freq:
         freqs.append(f)
         amps.append((x, y, z))
-    all_freqs, all_amps  = [], []
-    for f, x, y, z in frequencies:
-        all_freqs.append(f)
-        all_amps.append((x, y, z))
-
+        # Add sig_freqs
+        if (f, 'x', x) in sig_freq:
+            sig_amps.append((x, 0, 0))
+            sig_freqs.append(f)
+        if (f, 'y', y) in sig_freq:
+            sig_amps.append((0, y, 0))
+            sig_freqs.append(f)
+        if (f, 'z', z) in sig_freq:
+            sig_amps.append((0, 0, z))
+            sig_freqs.append(f)
+        else:
+            sig_amps.append((0, 0, 0))
+            sig_freqs.append(f)
     try:
         fig = plt.figure()
+
+        # Frequency vs. Amplitude
+        plt.subplot(3, 1, 1)
+        plt.plot(freqs, amps)
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Amplitude (m)')
+        plt.title('Frequency vs. Amplitude')
+        plt.grid(True)
+        plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
+        # Distance vs. Time
+        plt.subplot(3, 1, 2)
+        plt.plot(tim, dist)
+        plt.xlabel('Time (s)')
+        plt.ylabel('Distance (m)')
+        plt.title('Distance vs. Time')
+        plt.grid(True)
+        plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
+        # Significant Frequency vs. Amplitude
+        plt.subplot(3, 1, 3)
+        plt.plot(sig_freqs, sig_amps)
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Amplitude (m)')
+        plt.title('Significant Frequency vs. Amplitude')
+        plt.grid(True)
+        plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
         # All Frequency vs. Amplitude
         #plt.subplot(3, 1, 1)
         #plt.plot(all_freqs, all_amps)
@@ -311,22 +395,6 @@ def main(args, kwargs):
         #plt.title('All Found Frequency vs. Amplitude')
         #plt.grid(True)
         #plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
-        # Frequency vs. Amplitude
-        plt.subplot(2, 1, 1)
-        plt.plot(freqs, amps)
-        plt.xlabel('Frequency (Hz)')
-        plt.ylabel('Amplitude (m)')
-        plt.title('Frequency vs. Amplitude')
-        plt.grid(True)
-        plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
-        # Distance vs. Time
-        plt.subplot(2, 1, 2)
-        plt.plot(tim, dist)
-        plt.xlabel('Time (s)')
-        plt.ylabel('Distance (m)')
-        plt.title('Distance vs. Time')
-        plt.grid(True)
-        plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
 
         # Layout
         plt.subplots_adjust(hspace=0.4)

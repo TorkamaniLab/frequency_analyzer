@@ -15,7 +15,7 @@ from timer import timeit
 """ A list of names and ranges for the divisions
 of the frequencies (Hz).
 """
-buckets = [
+default_buckets = [
         ['00.87-1.75Hz', 0.87, 1.75],
         ['01.75-3.5Hz', 1.75, 3.5],
         ['03.50-7.0Hz', 3.5, 7],
@@ -24,8 +24,9 @@ buckets = [
         ]
 
 
-def categorize(data):
+def categorize(data, buckets=default_buckets):
     """ Sorts the given data array into the buckets. """
+    if buckets is None: buckets = default_buckets
     filled_buckets = {}
     for name, floor, ceiling in buckets:
         bucket = []
