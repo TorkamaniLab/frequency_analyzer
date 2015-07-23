@@ -15,6 +15,7 @@ from bin.timer import timeit
 from bin.integrator import integrate
 from bin.matrix import transformation_matrix, transform
 
+
 usage = """
 Description
 -----------
@@ -384,7 +385,7 @@ def main(args, kwargs):
         plt.plot(sig_freqs, sig_amps)
         plt.xlabel('Frequency (Hz)')
         plt.ylabel('Amplitude (m)')
-        plt.title('Significant Frequency vs. Amplitude')
+        plt.title('Significant Frequency vs. Amplitude (Cutoff={})'.format(sig_factor))
         plt.grid(True)
         plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
         # All Frequency vs. Amplitude
@@ -402,7 +403,6 @@ def main(args, kwargs):
         if save_data: plt.savefig('Freq_vs_Amp_and_x_vs_t.png')
         if graph: plt.show()
     except Exception as e:
-        print(e)
         print('Displaying and generating graphs isn\'t supported.')
     if verbose: print('Done!')
 
