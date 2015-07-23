@@ -365,37 +365,29 @@ def main(args, kwargs):
         fig = plt.figure()
 
         # Frequency vs. Amplitude
-        plt.subplot(3, 1, 1)
+        a1 = plt.subplot(3, 1, 1)
         plt.plot(freqs, amps)
         plt.xlabel('Frequency (Hz)')
-        plt.ylabel('Amplitude (m)')
-        plt.title('Frequency vs. Amplitude')
+        plt.ylabel('Magnitude (m)')
+        plt.title('Frequency vs. Magnitude')
+        plt.grid(True)
+        plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
+        # Significant Frequency vs. Amplitude
+        a2 = plt.subplot(3, 1, 2, sharex=a1, sharey=a1)
+        plt.plot(sig_freqs, sig_amps)
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Magnitude (m)')
+        plt.title('Significant Frequency vs. Magnitude (Cutoff={})'.format(sig_factor))
         plt.grid(True)
         plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
         # Distance vs. Time
-        plt.subplot(3, 1, 2)
+        plt.subplot(3, 1, 3)
         plt.plot(tim, dist)
         plt.xlabel('Time (s)')
         plt.ylabel('Distance (m)')
         plt.title('Distance vs. Time')
         plt.grid(True)
         plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
-        # Significant Frequency vs. Amplitude
-        plt.subplot(3, 1, 3)
-        plt.plot(sig_freqs, sig_amps)
-        plt.xlabel('Frequency (Hz)')
-        plt.ylabel('Amplitude (m)')
-        plt.title('Significant Frequency vs. Amplitude (Cutoff={})'.format(sig_factor))
-        plt.grid(True)
-        plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
-        # All Frequency vs. Amplitude
-        #plt.subplot(3, 1, 1)
-        #plt.plot(all_freqs, all_amps)
-        #plt.xlabel('Frequency (Hz)')
-        #plt.ylabel('Amplitude (m)')
-        #plt.title('All Found Frequency vs. Amplitude')
-        #plt.grid(True)
-        #plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
 
         # Layout
         plt.subplots_adjust(hspace=0.7)
@@ -403,6 +395,7 @@ def main(args, kwargs):
         if save_data: plt.savefig('Freq_vs_Amp_and_x_vs_t.png')
         if graph: plt.show()
     except Exception as e:
+        print(e)
         print('Displaying and generating graphs isn\'t supported.')
     if verbose: print('Done!')
 
