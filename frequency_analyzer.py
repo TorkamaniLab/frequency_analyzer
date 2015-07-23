@@ -7,7 +7,7 @@ import sys, getopt, os
 import matplotlib.pyplot as plt
 from math import sqrt
 from numpy.fft import fftn, fftfreq
-from numpy import absolute, mean
+from numpy import absolute, append, mean
 
 from bin.sanitizer import sanitize
 from bin.categorizer import categorize, default_buckets
@@ -278,21 +278,22 @@ def main(args, kwargs):
     sig_freq = set()
     for name, data in buckets.iteritems():
         freqs = data['Frequencies']
-        sig_amp = {
-                'x': max([x for f, x, y, z in freqs]) * sig_factor,
-                'y': max([y for f, x, y, z in freqs]) * sig_factor,
-                'z': max([z for f, x, y, z in freqs]) * sig_factor
-                }
-        if verbose: print('Cutoff: {} X:{} Y:{} Z:{}'.format(
-            name, sig_amp['x'], sig_amp['y'], sig_amp['z']))
         per_buck_sig_freq = []
-        for f, x, y, z in freqs:
-            if x > sig_amp['x']:
-                per_buck_sig_freq.append((f, 'x', x))
-            if y > sig_amp['y']:
-                per_buck_sig_freq.append((f, 'y', y))
-            if z > sig_amp['z']:
-                per_buck_sig_freq.append((f, 'z', z))
+        if len(freqs) != 0:
+            sig_amp_x = max([x for f, x, y, z in freqs]) * sig_factor
+            sig_amp_y = max([y for f, x, y, z in freqs]) * sig_factor
+            sig_amp_z = max([z for f, x, y, z in freqs]) * sig_factor
+
+            if verbose: print('Cutoff: {} X:{} Y:{} Z:{}'.format(
+                name, sig_amp_x, sig_amp_y, sig_amp_z))
+
+            for f, x, y, z in freqs:
+                if x > sig_amp_x:
+                    per_buck_sig_freq.append((f, 'x', x))
+                if y > sig_amp_y:
+                    per_buck_sig_freq.append((f, 'y', y))
+                if z > sig_amp_z:
+                    per_buck_sig_freq.append((f, 'z', z))
         data['Significant Frequencies'] = per_buck_sig_freq
         sig_freq.update(set(per_buck_sig_freq))
 
@@ -343,7 +344,8 @@ def main(args, kwargs):
     for t, x, y, z in S_t:
         dist.append((x, y, z))
         tim.append(t)
-    freqs, amps  = [], []
+
+    freqs, amps = [], []
     sig_freqs, sig_amps = [], []
     for f, x, y, z in filtered_freq:
         freqs.append(f)
@@ -361,6 +363,7 @@ def main(args, kwargs):
         else:
             sig_amps.append((0, 0, 0))
             sig_freqs.append(f)
+
     try:
         fig = plt.figure()
 
@@ -377,9 +380,15 @@ def main(args, kwargs):
         plt.plot(sig_freqs, sig_amps)
         plt.xlabel('Frequency (Hz)')
         plt.ylabel('Magnitude (m)')
-        plt.title('Significant Frequency vs. Magnitude (Cutoff={})'.format(sig_factor))
+        plt.title('Significant Frequency per bin vs. Magnitude (Cutoff={})'.format(sig_factor))
         plt.grid(True)
         plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
+        # Reformat the ticks
+        locs, labels = plt.xticks()
+        locs = sorted([bin_min for name, bin_min, bin_max in bins])
+        labels = [str(loc) for loc in locs]
+        plt.xticks(locs, labels)
+
         # Distance vs. Time
         plt.subplot(3, 1, 3)
         plt.plot(tim, dist)
