@@ -3,14 +3,15 @@
 
 from __future__ import print_function
 import sys, getopt, os
+from itertools import izip
 
 import matplotlib.pyplot as plt
 from math import sqrt
-from numpy.fft import fftn, fftfreq
-from numpy import absolute, append, mean
+from scipy.interpolate import splrep, splev
+from numpy import absolute, append, mean, ndarray, arange
+from pywt import wavedec
 
 from bin.sanitizer import sanitize
-from bin.categorizer import categorize, default_buckets
 from bin.timer import timeit
 from bin.integrator import integrate
 from bin.matrix import transformation_matrix, transform
@@ -49,6 +50,8 @@ Options
 -g --graph      : Shows the results visually in another window (using matplotlib).
 -e --save       : Save intermediate data (This option will create a number
                   of files in the cwd).
+-d --downsample : The frequency to downsample the data to. Defaults to 28Hz
+-l --levels     : The number of levels desired in the DWT process.
 -a --angle      : The angle from the axis(es) to which gravity was acting.
                   Defaults to z. Order of angles is preserved and counted
                   as the order for translation. (e.x. z:15 or z:15,x:30)
@@ -60,9 +63,6 @@ Options
                   acceleration data, nor will the device's frame of reference be
                   transformed to the Earth's inertial frame.
                   Use this if no transformation angles are known.
--b --bins       : Explicitly specify the frequency bins for the resulting
-                  analysis to be divided. All units are considered Hz.
-                  (e.x. 1.2-4.0,4.2-34.4,0.1-3)
 -k --sig-factor : When calculating a significance factor to isolate relevant
                   frequencies, what should be the cutoff? This value is relative
                   to the max amplitude of the discovered frequencies.
@@ -114,8 +114,9 @@ def main(args, kwargs):
     gravity = True
     time_unit = 'milliseconds'
     sloppy = False
-    bins = default_buckets
+    downsample = 28.0
     sig_factor = 0.9
+    levels = 5
 
     try:
         opts, args = getopt.getopt(sys.argv[1:], all_args, long_args)
@@ -141,6 +142,10 @@ def main(args, kwargs):
             input_filename = a
         elif o in ('-n', '--no-header'):
             no_header = True
+        elif o in ('-l', '--levels'):
+            levels = int(a)
+        elif o in ('-d', '--downsample'):
+            downsample = float(a)
         elif o in ('-k', '--sig-factor'):
             sig_factor = float(a)
             if sig_factor < 0 or sig_factor >= 1:
@@ -170,12 +175,6 @@ def main(args, kwargs):
                 quit('Angle must be a valid float. See --help for more information.')
             invalids = [True for ang, deg in angles if ang not in ['x', 'y', 'z'] or ang == '']
             if len(invalids) > 0: quit('Axis must be either "x, y, z". See --help.')
-        elif o in ('-b', '--bins'):
-            try:
-                raw_bins = [b.split('-') for b in a.split(',')]
-                bins = [('{}-{}Hz'.format(a,b), float(a), float(b)) for a, b in raw_bins]
-            except Exception as e:
-                quit("Incorrect bin syntax. See --help for more information.")
         else:
             quit("Undefined option. See --help for more information.")
 
@@ -189,7 +188,7 @@ def main(args, kwargs):
             t, x, y, z = line.split(',')
             data.append((int(t), int(x), int(y), int(z)))
     sanitized_data = sanitize(data, sloppy=sloppy, time_unit=time_unit)
-    sample_rate = 1 / sanitized_data[1][0] - sanitized_data[0][0]
+    sample_rate = 1.0 / sanitized_data[1][0] - sanitized_data[0][0]
 
     # Remove the Gravity vector from the data using the provided axis
     # and angle.
@@ -245,136 +244,146 @@ def main(args, kwargs):
                 'Integrated_Position_Data.csv',
                 header='Time(s),X(m),Y(m),Z(m)')
 
-    if verbose: print('Transforming...')
-    data_sans_time = [(x, y, z) for t, x, y, z in S_t]
-    amplitudes = absolute(fftn(data_sans_time)) / len(data_sans_time)
 
-    n = len(S_t)
-    freq_axis = fftfreq(n, d=1/sample_rate)
-    frequencies = []
-    for i, amp  in enumerate(amplitudes[-n:]):
-        x, y, z = amp
-        frequencies.append((freq_axis[i], x, y, z))
+    if verbose: print('Interpolating...')
+    t_new = arange(S_t[0][0], S_t[-1][0], 1.0/downsample)
 
-    if save_data:
-        save('\n'.join([','.join([str(f), str(x), str(y), str(z)]) \
-                for f, x, y, z, in frequencies]),
-                'Frequencies.csv',
-                header='Frequency,X,Y,Z')
+    S_t_i = [[t] for t in t_new]
+    for axis in [1, 2, 3]:
+        t, f_t = [], []
+        # Populate the sequence to be interpolated.
+        for val in S_t:
+            t.append(val[0])
+            f_t.append(val[axis])
+        # Interpolate
+        tck = splrep(t, f_t, s=0)
+        f_t_new = splev(t_new, tck, der=0)
+        [s_t_i.append(f_t_i) for f_t_i, s_t_i in izip(f_t, S_t_i)]
 
-    if verbose: print('Using bins: {}'.format(', '.join(\
-            [str(a) for a, _, __ in bins])))
     if verbose: print('Filling buckets...')
-    sorted_data = categorize(frequencies, buckets=bins)
-    buckets = {}
-    for name, data in sorted_data.iteritems():
-        buckets[name] = {'Frequencies': data}
+    buckets = []
+    for axis in [0, 1, 2]:
+        f_t  = []
+        for s_t_i in S_t_i:
+            f_t.append(s_t_i[axis+1])
+        bucket = wavedec(f_t, 'db8', level=levels)
+        buckets.append(bucket)
 
-    # Calculations
+    if verbose: print('Calculating frequency bins...')
+    bins = [(downsample, downsample/2.0),]
+    for i in range(levels-1):
+        _, prev_min = bins[i]
+        bins.append((prev_min, prev_min/2.0))
+    _, last_min = bins[-1]
+    bins.append((last_min, 0.0))
+    bins = list(reversed(bins))
+    bin_names = ['{}-{}Hz'.format(min_, max_) for max_, min_ in bins]
+    if verbose: print('Using bins: {}'.format(', '.join(bin_names)))
 
-    # Isolate the significant frequencies from the signal.
-    # Proposed solution: If an amplitude is above the mean amplitude.
-    # Gather a set of sig_freqs for later (set is faster to 'in' than list).
-    sig_freq = set()
-    for name, data in buckets.iteritems():
-        freqs = data['Frequencies']
-        per_buck_sig_freq = []
-        if len(freqs) != 0:
-            sig_amp_x = max([x for f, x, y, z in freqs]) * sig_factor
-            sig_amp_y = max([y for f, x, y, z in freqs]) * sig_factor
-            sig_amp_z = max([z for f, x, y, z in freqs]) * sig_factor
+    final_buckets = {}
+    for index, axis in enumerate(['x', 'y', 'z']):
+        for name, max_min in izip(bin_names, bins):
+            if name not in final_buckets.keys(): final_buckets[name] = {}
+            final_buckets[name]['max_min'] =  max_min
+        for name, bucket in izip(bin_names, enumerate(buckets[index])):
+            i, values_per_axis = bucket
+            if axis not in final_buckets[name].keys(): final_buckets[name][axis] = []
+            final_buckets[name][axis] = values_per_axis
+            # Add the scales.
+            if 'scale' not in final_buckets[name].keys():
+                final_buckets[name]['scale'] = arange(0, len(S_t_i),
+                        float(len(S_t_i))/float(len(values_per_axis)))
 
-            if verbose: print('Cutoff: {} X:{} Y:{} Z:{}'.format(
-                name, sig_amp_x, sig_amp_y, sig_amp_z))
-
-            for f, x, y, z in freqs:
-                if x > sig_amp_x:
-                    per_buck_sig_freq.append((f, 'x', x))
-                if y > sig_amp_y:
-                    per_buck_sig_freq.append((f, 'y', y))
-                if z > sig_amp_z:
-                    per_buck_sig_freq.append((f, 'z', z))
-        data['Significant Frequencies'] = per_buck_sig_freq
-        sig_freq.update(set(per_buck_sig_freq))
-
-    # Serialize
-    # TODO: This code is getting out of hand.
-    filtered_freq = []
-    for bucket, data in sorted(buckets.iteritems()):
-        filtered_freq.extend(data['Frequencies'])
-        freq = data['Frequencies']
-        just_freq = [f for f, x, y, z in freq]
-        data['Max Freq. (Hz)'] = '' if len(just_freq) == 0 else max(just_freq)
-        data['Avg. Freq. (Hz)'] = '' if len(just_freq) == 0 else sum(just_freq) / float(len(just_freq))
-        data['Total Movement (m)'] = sum([1.0 / f for f in just_freq])
-        data['Total Energy / k (Jm/N))'] = sum([0.5 * sum([x, y, z]) for f in freq])
-        # TODO: Add more
-        data['Significant Frequencies'] = ['F:{} {}:{}'.format(f, n.upper(), v) \
-                for f, n, v in data['Significant Frequencies']]
-        data['Frequencies'] = ['F:{} X:{} Y:{} Z:{}'.format(f, x, y, z) for f, x, y, z in freq]
+    if verbose: print('Picking out the cool stuff...')
+    for name, data in final_buckets.iteritems():
+        for axis in ['x', 'y', 'z']:
+            vals = data[axis]
+            data['max_amp'] = max(vals)
+            data['avg_amp'] = float(sum(vals)) / float(len(vals))
 
     # Output
+    # TODO: Fix Output formatting for print and file
     if output_filename is None or print_results:
         fields = []
         print('\nResults\n============')
-        for bucket, data in sorted(buckets.iteritems()):
+        for name, data in sorted(list(final_buckets.iteritems()),
+                cmp=lambda a,b: int(a[1]['max_min'][0] - b[1]['max_min'][0])):
             fields = sorted(data.keys()) if len(fields) == 0 else fields
-            print('\n{}\n------------'.format(bucket))
+            print('\n{}\n------------'.format(name))
             for field in fields:
                 out_str = ', '.join([str(el) for el in data[field]]) \
-                        if type(data[field]) is list else str(data[field])
+                        if type(data[field]) is list \
+                            or type(data[field]) is ndarray \
+                            or type(data[field]) is tuple \
+                            and field != 'scale' \
+                            else str(data[field])
                 print('{}: {}'.format(field, out_str))
 
     if output_filename is not None:
         contents = 'Bucket Name, Field, Value(s)\n'
         fields = []
-        for bucket, data in sorted(buckets.iteritems()):
+        for name, data in sorted(list(final_buckets.iteritems()),
+                cmp=lambda a,b: int(a[1]['max_min'][0] - b[1]['max_min'][0])):
             fields = sorted(data.keys()) if len(fields) == 0 else fields
             data_str = ''
             for field in fields:
                 data_str += ',{},{}\n'.format(field, ', '.join([str(el) \
-                        for el in data[field]]) if type(data[field]) \
-                        is list else str(data[field]))
-            contents += '{}\n{}'.format(bucket, data_str)
+                        for el in data[field]]) \
+                        if type(data[field]) is list \
+                            or type(data[field]) is ndarray \
+                            or type(data[field]) is tuple \
+                            else str(data[field]))
+            contents += '{}\n{}'.format(name, data_str)
         save(contents, output_filename)
 
     if verbose: print('Making graphs...')
     # Convert to graphable data
-    dist, tim = [], []
-    for t, x, y, z in S_t:
-        dist.append((x, y, z))
+    freqs = []
+    for name, data in sorted(list(final_buckets.iteritems()),
+            cmp=lambda a,b: int(a[1]['max_min'][0] - b[1]['max_min'][0])):
+        new_data = []
+        for x, y, z in izip(data['x'], data['y'], data['z']):
+            new_data.append((x, y, z))
+        freqs.append((name, data['scale'], new_data))
+    tim, dist = [], []
+    for t, x, y, z in S_t_i:
         tim.append(t)
-
-    freqs, amps = [], []
-    sig_freqs, sig_amps = [], []
-    for f, x, y, z in filtered_freq:
-        freqs.append(f)
-        amps.append((x, y, z))
-        # Add sig_freqs
-        if (f, 'x', x) in sig_freq:
-            sig_amps.append((x, 0, 0))
-            sig_freqs.append(f)
-        if (f, 'y', y) in sig_freq:
-            sig_amps.append((0, y, 0))
-            sig_freqs.append(f)
-        if (f, 'z', z) in sig_freq:
-            sig_amps.append((0, 0, z))
-            sig_freqs.append(f)
-        else:
-            sig_amps.append((0, 0, 0))
-            sig_freqs.append(f)
+        dist.append((x, y, z))
 
     try:
-        fig = plt.figure()
+        num_plots = len(freqs) + 1
+        fig = plt.figure(figsize=(12, 10))
 
-        # Frequency vs. Amplitude
-        a1 = plt.subplot(3, 1, 1)
-        plt.plot(freqs, amps)
-        plt.xlabel('Frequency (Hz)')
-        plt.ylabel('Magnitude (m)')
-        plt.title('Frequency vs. Magnitude')
+        # Distance vs. Time
+        a1 = plt.subplot(num_plots, 1, 1)
+        plt.plot(tim, dist)
+        plt.xlabel('Time (s)')
+        plt.ylabel('Distance (m)')
+        plt.title('Distance vs. Time')
         plt.grid(True)
         plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
+        plt.setp(a1.get_xticklabels(), fontsize=10)
+
+        named = False
+        ax = []
+        for i, freq in enumerate(freqs):
+            name, scale, data = freq
+            if len(ax) == 0:
+                a = plt.subplot(num_plots, 1, i+2)
+            else:
+                a = plt.subplot(num_plots, 1, i+2, sharex=ax[0])
+            plt.plot(scale, data)
+            if not named:
+                plt.title('Amplitude vs. Time by Frequency Bin')
+                named = True
+            plt.setp(a.get_xticklabels(), visible=False)
+            plt.grid(True)
+            plt.ylabel(name)
+            plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
+            ax.append(a)
+        plt.setp(ax[-1].get_xticklabels(), fontsize=10, visible=True)
+
+        """
         # Significant Frequency vs. Amplitude
         a2 = plt.subplot(3, 1, 2, sharex=a1, sharey=a1)
         plt.plot(sig_freqs, sig_amps)
@@ -384,22 +393,11 @@ def main(args, kwargs):
         plt.grid(True)
         plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
         # Reformat the ticks
-        locs, labels = plt.xticks()
-        locs = sorted([bin_min for name, bin_min, bin_max in bins])
-        labels = [str(loc) for loc in locs]
-        plt.xticks(locs, labels)
-
-        # Distance vs. Time
-        plt.subplot(3, 1, 3)
-        plt.plot(tim, dist)
-        plt.xlabel('Time (s)')
-        plt.ylabel('Distance (m)')
-        plt.title('Distance vs. Time')
-        plt.grid(True)
-        plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
-
-        # Layout
-        plt.subplots_adjust(hspace=0.7)
+        #locs, labels = plt.xticks()
+        #locs = sorted([bin_min for name, bin_min, bin_max in bins])
+        #labels = [str(loc) for loc in locs]
+        #plt.xticks(locs, labels)
+        """
 
         if save_data: plt.savefig('Freq_vs_Amp_and_x_vs_t.png')
         if graph: plt.show()
