@@ -15,7 +15,8 @@ def timeit(f, *args, **kwargs):
     Also prints the time.
     """
     start = time.time()
-    f(args, kwargs)
+    flag = f(args, kwargs)
     end = time.time()
-    print('That took {}s'.format(end - start))
+    if flag:
+        print('That took {}s'.format(end - start))
     return end - start

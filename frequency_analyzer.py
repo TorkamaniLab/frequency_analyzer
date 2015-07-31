@@ -83,10 +83,10 @@ Optionally, you may omit the header if the --no-header
 option is provided.
 """
 
-all_args = 'hvi:o:s:a:pet:fngrb:k:'
+all_args = 'hvi:o:s:a:pet:fngrb:k:d:'
 long_args = ['help', 'verbose', 'inputfile=', 'outputfile=', 'sloppy=',
     'angle=', 'print', 'save', 'time=', 'format', 'no-header', 'graph',
-    'no-gravity', 'bins=', 'sig-factor=']
+    'no-gravity', 'bins=', 'sig-factor=', 'downsample=']
 
 g = 9.81 # m/s**2
 
@@ -103,6 +103,23 @@ def save(data, filename, header=''):
     with open(filename, 'w') as f:
         f.write('{}\n{}'.format(header,str(data)))
 
+
+def serialize(data_to_serialize):
+    """ Serializes the given dictionary. """
+    fields = []
+    contents = ''
+    for name, data in data_to_serialize:
+        fields = sorted(data.keys()) if len(fields) == 0 else fields
+        data_str = ''
+        for field in fields:
+            data_str += ',{},{}\n'.format(field, ', '.join([str(el) \
+                    for el in data[field]]) \
+                    if type(data[field]) is list \
+                        or type(data[field]) is ndarray \
+                        or type(data[field]) is tuple \
+                        else str(data[field]))
+        contents += '{}\n{}'.format(name, data_str)
+    return contents
 
 def main(args, kwargs):
     verbose = False
@@ -278,8 +295,8 @@ def main(args, kwargs):
     bins.append((last_min, 0.0))
     bins = list(reversed(bins))
     bin_names = ['{}-{}Hz'.format(min_, max_) for max_, min_ in bins]
-    if verbose: print('Using bins: {}'.format(', '.join(bin_names)))
 
+    if verbose: print('Using bins: {}'.format(', '.join(bin_names)))
     final_buckets = {}
     for index, axis in enumerate(['x', 'y', 'z']):
         for name, max_min in izip(bin_names, bins):
@@ -294,118 +311,129 @@ def main(args, kwargs):
                 final_buckets[name]['scale'] = arange(0, len(S_t_i),
                         float(len(S_t_i))/float(len(values_per_axis)))
 
+
+    # Calculations
     if verbose: print('Picking out the cool stuff...')
     for name, data in final_buckets.iteritems():
         for axis in ['x', 'y', 'z']:
             vals = data[axis]
             data['max_amp'] = max(vals)
             data['avg_amp'] = float(sum(vals)) / float(len(vals))
+            field = 'sig_thresh_{}'.format(axis)
+            sig_threshold = sig_factor * data['max_amp']
+            data[field] = sig_threshold
+            field = 'sig_freq_{}'.format(axis)
+            data[field] = [freq if freq > sig_threshold else 0 for freq in vals]
+
 
     # Output
-    # TODO: Fix Output formatting for print and file
     if output_filename is None or print_results:
-        fields = []
-        print('\nResults\n============')
-        for name, data in sorted(list(final_buckets.iteritems()),
-                cmp=lambda a,b: int(a[1]['max_min'][0] - b[1]['max_min'][0])):
-            fields = sorted(data.keys()) if len(fields) == 0 else fields
-            print('\n{}\n------------'.format(name))
-            for field in fields:
-                out_str = ', '.join([str(el) for el in data[field]]) \
-                        if type(data[field]) is list \
-                            or type(data[field]) is ndarray \
-                            or type(data[field]) is tuple \
-                            and field != 'scale' \
-                            else str(data[field])
-                print('{}: {}'.format(field, out_str))
-
+        header = '\nResults\n============\nBucket Name, Field, Value(s)\n'
+        contents = serialize(sorted(list(final_buckets.iteritems()),
+                cmp=lambda a,b: int(a[1]['max_min'][0] - b[1]['max_min'][0])))
+        print(header, contents)
     if output_filename is not None:
-        contents = 'Bucket Name, Field, Value(s)\n'
-        fields = []
-        for name, data in sorted(list(final_buckets.iteritems()),
-                cmp=lambda a,b: int(a[1]['max_min'][0] - b[1]['max_min'][0])):
-            fields = sorted(data.keys()) if len(fields) == 0 else fields
-            data_str = ''
-            for field in fields:
-                data_str += ',{},{}\n'.format(field, ', '.join([str(el) \
-                        for el in data[field]]) \
-                        if type(data[field]) is list \
-                            or type(data[field]) is ndarray \
-                            or type(data[field]) is tuple \
-                            else str(data[field]))
-            contents += '{}\n{}'.format(name, data_str)
-        save(contents, output_filename)
+        header = 'Bucket Name, Field, Value(s)\n'
+        contents = serialize(sorted(list(final_buckets.iteritems()),
+                cmp=lambda a,b: int(a[1]['max_min'][0] - b[1]['max_min'][0])))
+        save(contents, output_filename, header=header)
+
 
     if verbose: print('Making graphs...')
-    # Convert to graphable data
     freqs = []
+    sig_freqs = []
     for name, data in sorted(list(final_buckets.iteritems()),
             cmp=lambda a,b: int(a[1]['max_min'][0] - b[1]['max_min'][0])):
         new_data = []
         for x, y, z in izip(data['x'], data['y'], data['z']):
             new_data.append((x, y, z))
         freqs.append((name, data['scale'], new_data))
+
+        new_sig_data = []
+        for x, y, z in izip(data['sig_freq_x'], data['sig_freq_y'], data['sig_freq_z']):
+            new_sig_data.append((x, y, z))
+        sig_freqs.append((name, data['scale'], new_sig_data))
+
     tim, dist = [], []
     for t, x, y, z in S_t_i:
         tim.append(t)
         dist.append((x, y, z))
 
     try:
+        # Main Frequency Plot
+
         num_plots = len(freqs) + 1
         fig = plt.figure(figsize=(12, 10))
 
         # Distance vs. Time
-        a1 = plt.subplot(num_plots, 1, 1)
-        plt.plot(tim, dist)
-        plt.xlabel('Time (s)')
-        plt.ylabel('Distance (m)')
-        plt.title('Distance vs. Time')
-        plt.grid(True)
-        plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
-        plt.setp(a1.get_xticklabels(), fontsize=10)
+        a1 = fig.add_subplot(num_plots, 1, 1)
+        a1.plot(tim, dist)
+        a1.set_xlabel('Time (s)')
+        a1.set_ylabel('Distance (m)')
+        a1.set_title('Distance vs. Time')
+        a1.grid(True)
+        a1.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
+        #a1.set_xticklabels(a1.get_xticklabels(), fontsize=10)
 
         named = False
         ax = []
         for i, freq in enumerate(freqs):
             name, scale, data = freq
             if len(ax) == 0:
-                a = plt.subplot(num_plots, 1, i+2)
+                a = fig.add_subplot(num_plots, 1, i+2)
             else:
-                a = plt.subplot(num_plots, 1, i+2, sharex=ax[0])
-            plt.plot(scale, data)
+                a = fig.add_subplot(num_plots, 1, i+2, sharex=ax[0])
+            a.plot(scale, data)
             if not named:
-                plt.title('Amplitude vs. Time by Frequency Bin')
+                a.set_title('Amplitude vs. Time by Frequency Bin')
                 named = True
-            plt.setp(a.get_xticklabels(), visible=False)
-            plt.grid(True)
-            plt.ylabel(name)
-            plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
+            a.set_xticklabels(a.get_xticklabels(), visible=False)
+            a.grid(True)
+            a.set_ylabel(name)
+            a.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
             ax.append(a)
-        plt.setp(ax[-1].get_xticklabels(), fontsize=10, visible=True)
+        #ax[-1].set_xticklabels(ax[-1].get_xticklabels(), fontsize=10, visible=True)
+        if save_data: fig.savefig('Freq_vs_Amp_and_x_vs_t.png')
 
-        """
-        # Significant Frequency vs. Amplitude
-        a2 = plt.subplot(3, 1, 2, sharex=a1, sharey=a1)
-        plt.plot(sig_freqs, sig_amps)
-        plt.xlabel('Frequency (Hz)')
-        plt.ylabel('Magnitude (m)')
-        plt.title('Significant Frequency per bin vs. Magnitude (Cutoff={})'.format(sig_factor))
-        plt.grid(True)
-        plt.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
-        # Reformat the ticks
-        #locs, labels = plt.xticks()
-        #locs = sorted([bin_min for name, bin_min, bin_max in bins])
-        #labels = [str(loc) for loc in locs]
-        #plt.xticks(locs, labels)
-        """
 
-        if save_data: plt.savefig('Freq_vs_Amp_and_x_vs_t.png')
+        # Significant Frequency Plot
+        fig2 = plt.figure(figsize=(12, 10))
+
+        # Distance v. Time (again)
+        a2 = fig2.add_subplot(num_plots, 1, 1)
+        a2.plot(tim, dist)
+        a2.set_xlabel('Time (s)')
+        a2.set_ylabel('Distance (m)')
+        a2.set_title('Distance vs. Time')
+        a2.grid(True)
+        a2.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
+        #a1.set_xticklabels(a1.get_xticklabels(), fontsize=10)
+
+        named = False
+        ax2 = []
+        for i, sig_freq in enumerate(sig_freqs):
+            name, scale, data = sig_freq
+            if len(ax2) == 0:
+                a2 = fig2.add_subplot(num_plots, 1, i+2)
+            else:
+                a2 = fig2.add_subplot(num_plots, 1, i+2, sharex=ax2[0])
+            a2.plot(scale, data)
+            if not named:
+                a2.set_title('Amplitude vs. Time by Frequency Bin')
+                named = True
+            a2.set_xticklabels(a2.get_xticklabels(), visible=False)
+            a2.grid(True)
+            a2.set_ylabel(name)
+            a2.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
+            ax2.append(a2)
+        #ax[-1].set_xticklabels(ax[-1].get_xticklabels(), fontsize=10, visible=True)
+        if save_data: fig2.savefig('Sig_Freq_vs_Amp_and_x_vs_t.png')
         if graph: plt.show()
     except Exception as e:
         print(e)
         print('Displaying and generating graphs isn\'t supported.')
     if verbose: print('Done!')
-
+    return True if verbose else False
 
 if __name__ == '__main__':
     timeit(main, sys.argv[1:])
