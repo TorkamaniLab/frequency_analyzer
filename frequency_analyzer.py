@@ -24,7 +24,7 @@ A utility for isolating, grouping, and visualizing
 frequencies found in raw accelerometer data.
 
 author: Brian Schrader
-since: 2015-07-22
+since: 2015-07-31
 
 Usage
 -----
@@ -420,7 +420,8 @@ def main(args, kwargs):
                 a2 = fig2.add_subplot(num_plots, 1, i+2, sharex=ax2[0])
             a2.plot(scale, data)
             if not named:
-                a2.set_title('Amplitude vs. Time by Frequency Bin')
+                a2.set_title('Significant Amplitudes vs. Time by Frequency Bin @{}'\
+                        .format(sig_factor))
                 named = True
             a2.set_xticklabels(a2.get_xticklabels(), visible=False)
             a2.grid(True)
