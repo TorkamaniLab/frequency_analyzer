@@ -5,6 +5,8 @@
 
 For a full list of options see the help menu `--help`.
 
+![A sample graph](/sample_analysis.png)
+
 ## What does it do?
 
 frequency_analyzer accepts 3d acclerometer input data in csv format. The data 
