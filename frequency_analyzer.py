@@ -83,10 +83,10 @@ Optionally, you may omit the header if the --no-header
 option is provided.
 """
 
-all_args = 'hvi:o:s:a:pet:fngrb:k:d:'
+all_args = 'hvi:o:s:a:pet:fngrb:k:d:l:'
 long_args = ['help', 'verbose', 'inputfile=', 'outputfile=', 'sloppy=',
     'angle=', 'print', 'save', 'time=', 'format', 'no-header', 'graph',
-    'no-gravity', 'bins=', 'sig-factor=', 'downsample=']
+    'no-gravity', 'bins=', 'sig-factor=', 'downsample=', 'levels=']
 
 g = 9.81 # m/s**2
 
