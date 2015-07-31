@@ -121,6 +121,7 @@ def serialize(data_to_serialize):
         contents += '{}\n{}'.format(name, data_str)
     return contents
 
+
 def main(args, kwargs):
     verbose = False
     print_results = False
@@ -434,6 +435,7 @@ def main(args, kwargs):
         print('Displaying and generating graphs isn\'t supported.')
     if verbose: print('Done!')
     return True if verbose else False
+
 
 if __name__ == '__main__':
     timeit(main, sys.argv[1:])
