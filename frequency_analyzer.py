@@ -133,7 +133,7 @@ def get_data(filename, no_header=False):
             first_line = f.readline()
         for line in f:
             t, x, y, z = line.split(',')
-            data.append((int(t), int(x), int(y), int(z)))
+            data.append((float(t), float(x), float(y), float(z)))
     return data
 
 
@@ -266,8 +266,6 @@ def main(input_filename, output_filename=None, verbose=False,
     if input_filename is None:
         quit('No input file supplied. See --help for more information.')
     data = get_data(input_filename, no_header=no_header)
-
-    ### do transfrom data
 
     sanitized_data = sanitize(data, sloppy=sloppy, time_unit=time_unit)
     sample_rate = 1.0 / sanitized_data[1][0] - sanitized_data[0][0]
