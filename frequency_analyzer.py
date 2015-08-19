@@ -2,19 +2,19 @@
 # -*- coding: UTF-8 -*-
 
 from __future__ import print_function
-import sys, getopt, os
 from itertools import izip
+import sys, getopt, os
 
-import matplotlib.pyplot as plt
 from math import sqrt
-from scipy.interpolate import splrep, splev
 from numpy import absolute, append, mean, ndarray, arange
 from pywt import wavedec
+from scipy.interpolate import splrep, splev
+import matplotlib.pyplot as plt
 
-from bin.sanitizer import sanitize
-from bin.timer import timeit
 from bin.integrator import integrate
 from bin.matrix import transformation_matrix, transform
+from bin.sanitizer import sanitize
+from bin.timer import timeit
 
 
 usage = """
@@ -50,7 +50,7 @@ Options
 -g --graph      : Shows the results visually in another window (using matplotlib).
 -e --save       : Save intermediate data (This option will create a number
                   of files in the cwd).
--d --downsample : The frequency to downsample the data to. Defaults to 28Hz
+-d --downsample : The frequency to downsample the data to. Defaults to 25Hz
 -l --levels     : The number of levels desired in the DWT process.
 -a --angle      : The angle from the axis(es) to which gravity was acting.
                   Defaults to z. Order of angles is preserved and counted
@@ -137,38 +137,38 @@ def get_data(filename, no_header=False):
     return data
 
 
-def do_interpolate(S_t, downsample=28):
+def do_interpolate(F_t, downsample=25):
     """ Given a sequence of (t, x, y, z) values at a given sample
     rate, interpolate values at a downsampled rate.
 
-    :params S_t: A sequence of (t, x, y, z) values at a given rate.
-    :params downsample: The Hz to be converted to (e.g. 28).
+    :params F_t: A sequence of (t, x, y, z) values at a given rate.
+    :params downsample: The Hz to be converted to (e.g. 25).
 
-    :returns S_t_i: A new sequence of (t, x, y, z) values interpolated
+    :returns F_t_i: A new sequence of (t, x, y, z) values interpolated
     at the downsampled rate.
     """
-    t_new = arange(S_t[0][0], S_t[-1][0], 1.0/downsample)
+    t_new = arange(F_t[0][0], F_t[-1][0], 1.0/downsample)
 
-    S_t_i = [[t] for t in t_new]
+    F_t_i = [[t] for t in t_new]
     for axis in [1, 2, 3]:
         t, f_t = [], []
         # Populate the sequence to be interpolated.
-        for val in S_t:
+        for val in F_t:
             t.append(val[0])
             f_t.append(val[axis])
         # Interpolate
         tck = splrep(t, f_t, s=0)
         f_t_new = splev(t_new, tck, der=0)
-        [s_t_i.append(f_t_i) for f_t_i, s_t_i in izip(f_t, S_t_i)]
-    return S_t_i
+        [f_t_i_i.append(f_t_i) for f_t_i, f_t_i_i in izip(f_t, F_t_i)]
+    return F_t_i
 
 
-def get_frequencies(S_t_i, wavelet='db8', levels=5, sample_rate=28.0):
+def get_frequencies(A_t, wavelet='db8', levels=5, sample_rate=25.0):
     """ Given a sequence of (t, x, y, z) points in a uniform
     distribution, extract the frequencies using a Discrete Wavelet
     Transform and the provided wavelet.
 
-    :params S_t_i: A sequence of (t, x, y, z) points at a fixed
+    :params A_t: A sequence of (t, x, y, z) points at a fixed
     sample rate.
     :params wavelet: The wavelet to use in the DWT.
     :params sample_rate: The sample rate of the data in Hz.
@@ -196,8 +196,8 @@ def get_frequencies(S_t_i, wavelet='db8', levels=5, sample_rate=28.0):
     empty_buckets = []
     for axis in [0, 1, 2]:
         f_t  = []
-        for s_t_i in S_t_i:
-            f_t.append(s_t_i[axis+1])
+        for a_t_i in A_t:
+            f_t.append(a_t_i[axis+1])
         bucket = wavedec(f_t, wavelet, level=levels)
         empty_buckets.append(bucket)
 
@@ -221,8 +221,8 @@ def get_frequencies(S_t_i, wavelet='db8', levels=5, sample_rate=28.0):
             filled_buckets[name][axis] = values_per_axis
             # Add the scales.
             if 'scale' not in filled_buckets[name].keys():
-                filled_buckets[name]['scale'] = arange(0, len(S_t_i),
-                       float(len(S_t_i))/float(len(values_per_axis)))
+                filled_buckets[name]['scale'] = arange(0, len(A_t),
+                       float(len(A_t))/float(len(values_per_axis)))
     return filled_buckets
 
 
@@ -246,6 +246,7 @@ def do_calculations(buckets, sig_factor=0.9):
             vals = data[axis]
             data['max_amp'] = max(vals)
             data['avg_amp'] = float(sum(vals)) / float(len(vals))
+            data['energy'] = sum(abs(vals))
             field = 'sig_thresh_{}'.format(axis)
             sig_threshold = sig_factor * data['max_amp']
             data[field] = sig_threshold
@@ -257,7 +258,7 @@ def do_calculations(buckets, sig_factor=0.9):
 def main(input_filename, output_filename=None, verbose=False,
         print_results=False, save_data=False, angles=[('z', 180.0)],
         no_header=False, graph=False, gravity=True, time_unit='milliseconds',
-        sloppy=False, downsample=28.0, sig_factor=0.9, levels=5):
+        sloppy=False, downsample=25.0, sig_factor=0.9, levels=5):
     """ Given an intial data set, and various other parameters, calculate
     the frequency spread of the data. Data provided should be in the form
     of acceleration in mG with a regular sample rate.
@@ -286,13 +287,14 @@ def main(input_filename, output_filename=None, verbose=False,
     if gravity:
         r = [0, 0, 9.81]
         # Given a frame in which gravity acts along the Z axis, and given
-        # transformation angles, transform the device frame to the inertial frame.
+        # transformation angles, transform the device frame to
+        # the inertial frame.
         R_t = transformation_matrix(angles)
         if save_data:
             contents = ''
             for r_t in R_t:
-                contents += '{}\n\n'.format('\n'.join([','.join([str(el) for el \
-                        in row]) for row in r_t]))
+                contents += ('{}\n\n'.format('\n'.join([','.join([str(el) for
+                    el in row]) for row in r_t])))
             save(contents, 'Transformation_Matrices.csv')
 
         for a_t in A_t_d:
@@ -307,24 +309,10 @@ def main(input_filename, output_filename=None, verbose=False,
     else:
         A_t = A_t_d
 
-    V_t = integrate(A_t)
-    if save_data:
-        save('\n'.join([','.join([str(t), str(x), str(y), str(z)])\
-                for t, x, y, z in V_t]),
-                'Integrated_Velocity_Data.csv',
-                header='Time(s),X(m/s),Y(m/s),Z(m/s)')
-
-    S_t = integrate(V_t)
-    if save_data:
-        save('\n'.join([','.join([str(t), str(x), str(y), str(z)])\
-                for t, x, y, z in V_t]),
-                'Integrated_Position_Data.csv',
-                header='Time(s),X(m),Y(m),Z(m)')
-
-    S_t_i = do_interpolate(S_t, downsample)
+    A_t_i = do_interpolate(A_t, downsample)
 
     if verbose: print('Extracting Frequencies...')
-    filled_buckets = get_frequencies(S_t_i, wavelet='db8',
+    filled_buckets = get_frequencies(A_t_i, wavelet='db8',
             levels=levels, sample_rate=downsample)
 
     if verbose: print('Picking out the cool stuff...')
@@ -351,12 +339,13 @@ def main(input_filename, output_filename=None, verbose=False,
         freqs.append((name, data['scale'], new_data))
 
         new_sig_data = []
-        for x, y, z in izip(data['sig_freq_x'], data['sig_freq_y'], data['sig_freq_z']):
+        for x, y, z in izip(data['sig_freq_x'], data['sig_freq_y'],
+                data['sig_freq_z']):
             new_sig_data.append((x, y, z))
         sig_freqs.append((name, data['scale'], new_sig_data))
 
     tim, dist = [], []
-    for t, x, y, z in S_t_i:
+    for t, x, y, z in A_t_i:
         tim.append(t)
         dist.append((x, y, z))
 
@@ -371,8 +360,8 @@ def main(input_filename, output_filename=None, verbose=False,
         a1 = fig.add_subplot(num_plots, 1, 1)
         a1.plot(tim, dist)
         a1.set_xlabel('Time (s)')
-        a1.set_ylabel('Distance (m)')
-        a1.set_title('Distance vs. Time')
+        a1.set_ylabel('Accel (m/s^2)')
+        a1.set_title('Acceleration vs. Time')
         a1.grid(True)
         a1.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
         #a1.set_xticklabels(a1.get_xticklabels(), fontsize=10)
@@ -394,7 +383,6 @@ def main(input_filename, output_filename=None, verbose=False,
             a.set_ylabel(name)
             a.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
             ax.append(a)
-        #ax[-1].set_xticklabels(ax[-1].get_xticklabels(), fontsize=10, visible=True)
         if save_data: fig.savefig('Freq_vs_Amp_and_x_vs_t.png')
 
         # Significant Frequency Plot
@@ -404,8 +392,8 @@ def main(input_filename, output_filename=None, verbose=False,
         a2 = fig2.add_subplot(num_plots, 1, 1)
         a2.plot(tim, dist)
         a2.set_xlabel('Time (s)')
-        a2.set_ylabel('Distance (m)')
-        a2.set_title('Distance vs. Time')
+        a2.set_ylabel('Accel (m/s^2)')
+        a2.set_title('Acceleration vs. Time')
         a2.grid(True)
         a2.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
         #a1.set_xticklabels(a1.get_xticklabels(), fontsize=10)
@@ -449,7 +437,7 @@ if __name__ == '__main__':
     gravity = True
     time_unit = 'milliseconds'
     sloppy = False
-    downsample = 28.0
+    downsample = 25.0
     sig_factor = 0.9
     levels = 5
 
