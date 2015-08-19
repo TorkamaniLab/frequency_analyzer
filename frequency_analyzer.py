@@ -137,7 +137,7 @@ def get_data(filename, no_header=False):
     return data
 
 
-def do_interpolate(F_t, downsample=25):
+def do_interpolate(F_t, downsample=25.0):
     """ Given a sequence of (t, x, y, z) values at a given sample
     rate, interpolate values at a downsampled rate.
 
@@ -147,19 +147,27 @@ def do_interpolate(F_t, downsample=25):
     :returns F_t_i: A new sequence of (t, x, y, z) values interpolated
     at the downsampled rate.
     """
+    downsample = float(downsample)
     t_new = arange(F_t[0][0], F_t[-1][0], 1.0/downsample)
 
-    F_t_i = [[t] for t in t_new]
-    for axis in [1, 2, 3]:
-        t, f_t = [], []
-        # Populate the sequence to be interpolated.
-        for val in F_t:
-            t.append(val[0])
-            f_t.append(val[axis])
-        # Interpolate
-        tck = splrep(t, f_t, s=0)
-        f_t_new = splev(t_new, tck, der=0)
-        [f_t_i_i.append(f_t_i) for f_t_i, f_t_i_i in izip(f_t, F_t_i)]
+    # If the desired rate is an even division of
+    # the current rate, then just strip out the rest.
+    curr_sample_rate = 1.0 / F_t[1][0] - F_t[0][0]
+    if curr_sample_rate % downsample == 0:
+        k = curr_sample_rate / downsample
+        F_t_i = [f_t for i, f_t in enumerate(F_t) if i % k == 0]
+    else:
+        F_t_i = [[t] for t in t_new]
+        for axis in [1, 2, 3]:
+            t, f_t = [], []
+            # Populate the sequence to be interpolated.
+            for val in F_t:
+                t.append(val[0])
+                f_t.append(val[axis])
+            # Interpolate
+            tck = splrep(t, f_t, s=0)
+            f_t_new = splev(t_new, tck, der=0)
+            [f_t_i_i.append(f_t_i) for f_t_i, f_t_i_i in izip(f_t, F_t_i)]
     return F_t_i
 
 
