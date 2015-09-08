@@ -5,10 +5,11 @@ from __future__ import print_function
 from itertools import izip
 import sys, getopt, os
 
-from math import sqrt
+from math import sqrt, ceil
 from numpy import absolute, append, mean, ndarray, arange
 from pywt import wavedec
 from scipy.interpolate import splrep, splev
+from scipy.linalg import svdvals
 import matplotlib.pyplot as plt
 
 from bin.integrator import integrate
@@ -68,6 +69,8 @@ Options
                   to the max amplitude of the discovered frequencies.
                   Max values are calculated per bin.
                   Values are from 0<x<1. The default is 0.9. (e.x. 0.85)
+-m --svd        : Generate the single value decompositions of the given signal
+                  matrix. This saves those values to a file.
 """.format(os.path.basename(__file__))
 
 frmt="""
@@ -171,6 +174,7 @@ def do_interpolate(F_t, downsample=25.0):
     return F_t_i
 
 
+
 def get_frequencies(A_t, wavelet='db8', levels=5, sample_rate=25.0):
     """ Given a sequence of (t, x, y, z) points in a uniform
     distribution, extract the frequencies using a Discrete Wavelet
@@ -263,6 +267,41 @@ def do_calculations(buckets, sig_factor=0.9):
     return buckets
 
 
+def root_mean_square(buckets):
+    """ Combine the 3-D signal into a 1-D signal using
+    x = sqrt(x**2 + y**2 + z**2)
+    """
+    for name, data in buckets.iteritems():
+        rms = []
+        for x, y, z in izip(data['x'], data['y'], data['z']):
+            rms.append(sqrt(x**2 + y**2 + z**2))
+        data['rms'] = rms
+    return buckets
+
+def do_svd(buckets):
+    """ Given a set of frequency bins, computes the singluar values
+    of the feature vector matrix.
+
+    :returns: A vector of singular values.
+    """
+    l = 0
+    for _, data in buckets.iteritems():
+        if len(data['rms']) > l: l = len(data['rms'])
+
+    M = []
+    l_t_new = xrange(l)
+    for name, data in buckets.iteritems():
+        _, min_ = data['max_min']
+        rms = data['rms']
+        l_t = xrange(len(rms))
+        tck = splrep(l_t, rms, s=0)
+        rms_new = splev(l_t_new, tck, der=0)
+        M.append((min_, rms_new))
+
+    M = [rms for _, rms in reversed(sorted(M))]
+    return svdvals(M)
+
+
 def main(input_filename, output_filename=None, verbose=False,
         print_results=False, save_data=False, angles=[('z', 180.0)],
         no_header=False, graph=False, gravity=True, time_unit='milliseconds',
@@ -275,6 +314,10 @@ def main(input_filename, output_filename=None, verbose=False,
     if input_filename is None:
         quit('No input file supplied. See --help for more information.')
     data = get_data(input_filename, no_header=no_header)
+
+    if save_data:
+        save_path = os.path.abspath('%s.work' % output_filename)
+        os.mkdir(save_path)
 
     sanitized_data = sanitize(data, sloppy=sloppy, time_unit=time_unit)
     sample_rate = 1.0 / sanitized_data[1][0] - sanitized_data[0][0]
@@ -303,7 +346,7 @@ def main(input_filename, output_filename=None, verbose=False,
             for r_t in R_t:
                 contents += ('{}\n\n'.format('\n'.join([','.join([str(el) for
                     el in row]) for row in r_t])))
-            save(contents, 'Transformation_Matrices.csv')
+            save(contents, '%s/Transformation_Matrices.csv' % save_path)
 
         for a_t in A_t_d:
             t, x, y, z = a_t
@@ -312,7 +355,7 @@ def main(input_filename, output_filename=None, verbose=False,
         if save_data:
             save('\n'.join([','.join([str(t), str(x), str(y), str(z)])\
                     for t, x, y, z in A_t]),
-                    'Transformed_Sensor_Data.csv',
+                    '%s/Transformed_Sensor_Data.csv' % save_path,
                     header='Time(s),X(m/s^2),Y(m/s^2),Z(m/s^2)')
     else:
         A_t = A_t_d
@@ -326,10 +369,17 @@ def main(input_filename, output_filename=None, verbose=False,
     if verbose: print('Picking out the cool stuff...')
     do_calculations(filled_buckets, sig_factor=sig_factor)
 
+    if verbose: print('Calculating SVD...')
+    sigmas = do_svd(root_mean_square(filled_buckets))
+    if save_data: save('\n'.join(str(x) for x in sigmas),
+            '%s/Singular Values.csv' % save_path)
+
     # Output
     header = 'Bucket Name, Field, Value(s)\n'
     contents = serialize(sorted(list(filled_buckets.iteritems()),
             cmp=lambda a,b: int(a[1]['max_min'][0] - b[1]['max_min'][0])))
+    contents += 'Singular Values \n,%s' % (','.join(str(x) for x in sigmas))
+
     if output_filename is None or print_results:
         print(header, contents)
     if output_filename is not None:
@@ -391,7 +441,7 @@ def main(input_filename, output_filename=None, verbose=False,
             a.set_ylabel(name)
             a.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
             ax.append(a)
-        if save_data: fig.savefig('Freq_vs_Amp_and_x_vs_t.png')
+        if save_data: fig.savefig('%s/Freq_vs_Amp_and_x_vs_t.png' % save_path)
 
         # Significant Frequency Plot
         fig2 = plt.figure(figsize=(12, 10))
@@ -425,7 +475,8 @@ def main(input_filename, output_filename=None, verbose=False,
             a2.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
             ax2.append(a2)
         #ax[-1].set_xticklabels(ax[-1].get_xticklabels(), fontsize=10, visible=True)
-        if save_data: fig2.savefig('Sig_Freq_vs_Amp_and_x_vs_t.png')
+        if save_data: fig2.savefig('%s/Sig_Freq_vs_Amp_and_x_vs_t.png' %
+                save_path)
         if graph: plt.show()
     except Exception as e:
         print(e)
@@ -435,6 +486,7 @@ def main(input_filename, output_filename=None, verbose=False,
 
 
 if __name__ == '__main__':
+    svd = False
     input_filename = None
     verbose = False
     print_results = False
@@ -496,6 +548,8 @@ if __name__ == '__main__':
             save_data = True
         elif o in ('-t', '--time'):
             time_unit = a
+        elif o in ('-t', '--svd'):
+            svd = True
         elif o in ('-a', '--angle'):
             axis_angles = [k for k in a.split(',')]
             for val in axis_angles:
