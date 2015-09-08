@@ -548,7 +548,7 @@ if __name__ == '__main__':
             save_data = True
         elif o in ('-t', '--time'):
             time_unit = a
-        elif o in ('-t', '--svd'):
+        elif o in ('-m', '--svd'):
             svd = True
         elif o in ('-a', '--angle'):
             axis_angles = [k for k in a.split(',')]
