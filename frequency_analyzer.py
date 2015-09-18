@@ -103,6 +103,7 @@ def quit(msg, err=True):
 
 def save(data, filename, header=''):
     """ Saves the given data to a file. """
+    print(filename)
     with open(filename, 'w') as f:
         f.write('{}\n{}'.format(header,str(data)))
 
@@ -302,15 +303,89 @@ def do_svd(buckets):
     return svdvals(M)
 
 
-def main(input_filename, output_filename=None, verbose=False,
-        print_results=False, save_data=False, angles=[('z', 180.0)],
-        no_header=False, graph=False, gravity=True, time_unit='milliseconds',
-        sloppy=False, downsample=25.0, sig_factor=0.9, levels=5):
+def main():
     """ Given an intial data set, and various other parameters, calculate
     the frequency spread of the data. Data provided should be in the form
     of acceleration in mG with a regular sample rate.
     For an explanation of the parameters, see usage.
     """
+    svd = False
+    input_filename = None
+    verbose = False
+    print_results = False
+    save_data = False
+    angles = [('z', 180)]
+    no_header = False
+    graph = False
+    gravity = True
+    time_unit = 'milliseconds'
+    sloppy = False
+    downsample = 25.0
+    sig_factor = 0.9
+    levels = 5
+
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], all_args, long_args)
+    except getopt.GetoptError as err:
+        quit('{}\n{}'.format(str(err), usage))
+
+    try:
+        input_filename = args[0]
+    except IndexError:
+        input_filename = None
+    output_filename = None
+
+    for o, a in opts:
+        if o in ('-h', '--help'):
+            print(usage)
+            sys.exit(0)
+        if o in ('-f', '--format'):
+            print(frmt)
+            sys.exit(0)
+        elif o in ('-o', '--outputfile'):
+            output_filename = a
+        elif o in ('-i', '--inputfile'):
+            input_filename = a
+        elif o in ('-n', '--no-header'):
+            no_header = True
+        elif o in ('-l', '--levels'):
+            levels = int(a)
+        elif o in ('-d', '--downsample'):
+            downsample = float(a)
+        elif o in ('-k', '--sig-factor'):
+            sig_factor = float(a)
+            if sig_factor < 0 or sig_factor >= 1:
+                quit('Significance factor must be 0<x<1. See --help for more information.')
+        elif o in ('-s', '--sloppy'):
+            sloppy = True if a.lower() in ['true', 'yes', '1'] else False
+        elif o in ('-v', '--verbose'):
+            verbose = True
+        elif o in ('-r', '--no-gravity'):
+            gravity = False
+            print('Ignoring gravity')
+        elif o in ('-g', '--graph'):
+            graph = True
+        elif o in ('-p', '--print'):
+            print_results = True
+        elif o in ('-e', '--save'):
+            save_data = True
+        elif o in ('-t', '--time'):
+            time_unit = a
+        elif o in ('-m', '--svd'):
+            svd = True
+        elif o in ('-a', '--angle'):
+            axis_angles = [k for k in a.split(',')]
+            for val in axis_angles:
+                angles.append(val.split(':')[:2])
+            try:
+                angles = [(ax.lower(), float(deg)) for ax, deg in angles]
+            except ValueError:
+                quit('Angle must be a valid float. See --help for more information.')
+            invalid = any(True for a, _ in angles if a not in ['x', 'y',
+                'z'] or a == '')
+            if invalid: quit('Axis must be either "x, y, z". See --help.')
+        else:
+            quit("Undefined option. See --help for more information.")
     if input_filename is None:
         quit('No input file supplied. See --help for more information.')
     data = get_data(input_filename, no_header=no_header)
@@ -372,13 +447,13 @@ def main(input_filename, output_filename=None, verbose=False,
     if verbose: print('Calculating SVD...')
     sigmas = do_svd(root_mean_square(filled_buckets))
     if save_data: save('\n'.join(str(x) for x in sigmas),
-            '%s/Singular Values.csv' % save_path)
+            '%s/singular_values.csv' % save_path)
 
     # Output
     header = 'Bucket Name, Field, Value(s)\n'
     contents = serialize(sorted(list(filled_buckets.iteritems()),
             cmp=lambda a,b: int(a[1]['max_min'][0] - b[1]['max_min'][0])))
-    contents += 'Singular Values \n,%s' % (','.join(str(x) for x in sigmas))
+    contents += 'singular_values \n,%s' % (','.join(str(x) for x in sigmas))
 
     if output_filename is None or print_results:
         print(header, contents)
@@ -389,6 +464,7 @@ def main(input_filename, output_filename=None, verbose=False,
     if verbose: print('Making graphs...')
     freqs = []
     sig_freqs = []
+    sorted_freqs = []
     for name, data in sorted(list(filled_buckets.iteritems()),
             cmp=lambda a,b: int(a[1]['max_min'][0] - b[1]['max_min'][0])):
         new_data = []
@@ -401,6 +477,9 @@ def main(input_filename, output_filename=None, verbose=False,
                 data['sig_freq_z']):
             new_sig_data.append((x, y, z))
         sig_freqs.append((name, data['scale'], new_sig_data))
+
+        sorted_freqs.append((data['max_min'][0], name,
+            (data['x'], data['y'], data['z'])))
 
     tim, dist = [], []
     for t, x, y, z in A_t_i:
@@ -477,6 +556,19 @@ def main(input_filename, output_filename=None, verbose=False,
         #ax[-1].set_xticklabels(ax[-1].get_xticklabels(), fontsize=10, visible=True)
         if save_data: fig2.savefig('%s/Sig_Freq_vs_Amp_and_x_vs_t.png' %
                 save_path)
+
+        # Histogram
+
+        fig3 = plt.figure(figsize=(12, 10))
+        l = len(sorted_freqs)
+        for i, val in enumerate(sorted_freqs):
+            _, name, data =  val
+            x, y, z = data
+            a3 = fig3.add_subplot(l, 1, i+1)
+            a3.hist([x, y, z], bins=30)
+            a3.set_ylabel(name)
+        if save_data: fig3.savefig('%s/Histogram.png' % save_path)
+
         if graph: plt.show()
     except Exception as e:
         print(e)
@@ -486,85 +578,4 @@ def main(input_filename, output_filename=None, verbose=False,
 
 
 if __name__ == '__main__':
-    svd = False
-    input_filename = None
-    verbose = False
-    print_results = False
-    save_data = False
-    angles = [('z', 180)]
-    no_header = False
-    graph = False
-    gravity = True
-    time_unit = 'milliseconds'
-    sloppy = False
-    downsample = 25.0
-    sig_factor = 0.9
-    levels = 5
-
-    try:
-        opts, args = getopt.getopt(sys.argv[1:], all_args, long_args)
-    except getopt.GetoptError as err:
-        quit('{}\n{}'.format(str(err), usage))
-
-    try:
-        input_filename = args[0]
-    except IndexError:
-        input_filename = None
-    output_filename = None
-
-    for o, a in opts:
-        if o in ('-h', '--help'):
-            print(usage)
-            sys.exit(0)
-        if o in ('-f', '--format'):
-            print(frmt)
-            sys.exit(0)
-        elif o in ('-o', '--outputfile'):
-            output_filename = a
-        elif o in ('-i', '--inputfile'):
-            input_filename = a
-        elif o in ('-n', '--no-header'):
-            no_header = True
-        elif o in ('-l', '--levels'):
-            levels = int(a)
-        elif o in ('-d', '--downsample'):
-            downsample = float(a)
-        elif o in ('-k', '--sig-factor'):
-            sig_factor = float(a)
-            if sig_factor < 0 or sig_factor >= 1:
-                quit('Significance factor must be 0<x<1. See --help for more information.')
-        elif o in ('-s', '--sloppy'):
-            sloppy = True if a.lower() in ['true', 'yes', '1'] else False
-        elif o in ('-v', '--verbose'):
-            verbose = True
-        elif o in ('-r', '--no-gravity'):
-            gravity = False
-            print('Ignoring gravity')
-        elif o in ('-g', '--graph'):
-            graph = True
-        elif o in ('-p', '--print'):
-            print_results = True
-        elif o in ('-e', '--save'):
-            save_data = True
-        elif o in ('-t', '--time'):
-            time_unit = a
-        elif o in ('-m', '--svd'):
-            svd = True
-        elif o in ('-a', '--angle'):
-            axis_angles = [k for k in a.split(',')]
-            for val in axis_angles:
-                angles.append(val.split(':')[:2])
-            try:
-                angles = [(ax.lower(), float(deg)) for ax, deg in angles]
-            except ValueError:
-                quit('Angle must be a valid float. See --help for more information.')
-            invalids = [True for ang, deg in angles if ang not in ['x', 'y', 'z'] or ang == '']
-            if len(invalids) > 0: quit('Axis must be either "x, y, z". See --help.')
-        else:
-            quit("Undefined option. See --help for more information.")
-
-    timeit(main, input_filename, output_filename,
-            verbose=verbose, print_results=print_results, save_data=save_data,
-            angles=angles, no_header=no_header, graph=graph, gravity=gravity,
-            time_unit=time_unit, sloppy=sloppy, downsample=downsample,
-            sig_factor=sig_factor, levels=levels)
+    timeit(main)
