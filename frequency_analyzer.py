@@ -6,7 +6,7 @@ from itertools import izip
 import sys, getopt, os
 
 from math import sqrt, ceil
-from numpy import absolute, append, mean, ndarray, arange
+from numpy import absolute, append, mean, ndarray, arange, std
 from pywt import wavedec
 from scipy.interpolate import splrep, splev
 from scipy.linalg import svdvals
@@ -70,7 +70,7 @@ Options
                   Max values are calculated per bin.
                   Values are from 0<x<1. The default is 0.9. (e.x. 0.85)
 -m --svd        : Generate the single value decompositions of the given signal
-                  matrix. This saves those values to a file.
+                  matrix normalized by their std. This saves those values to a file.
 """.format(os.path.basename(__file__))
 
 frmt="""
@@ -300,7 +300,9 @@ def do_svd(buckets):
         M.append((min_, rms_new))
 
     M = [rms for _, rms in reversed(sorted(M))]
-    return svdvals(M)
+    svd = svdvals(M)
+    m, s = mean(svd), std(svd)
+    return [((x - m) / s) for x in svd]
 
 
 def main():
