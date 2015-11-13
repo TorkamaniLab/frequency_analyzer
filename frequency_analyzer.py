@@ -3,7 +3,7 @@
 
 from __future__ import print_function
 from itertools import izip
-import sys, getopt, os
+import sys, getopt, json, time, os
 
 from math import sqrt, ceil
 from numpy import absolute, append, mean, ndarray, arange, std
@@ -175,7 +175,6 @@ def do_interpolate(F_t, downsample=25.0):
     return F_t_i
 
 
-
 def get_frequencies(A_t, wavelet='db8', levels=5, sample_rate=25.0):
     """ Given a sequence of (t, x, y, z) points in a uniform
     distribution, extract the frequencies using a Discrete Wavelet
@@ -279,6 +278,7 @@ def root_mean_square(buckets):
         data['rms'] = rms
     return buckets
 
+
 def do_svd(buckets):
     """ Given a set of frequency bins, computes the singluar values
     of the feature vector matrix.
@@ -303,6 +303,25 @@ def do_svd(buckets):
     svd = svdvals(M)
     m, s = mean(svd), std(svd)
     return [((x - m) / s) for x in svd]
+
+
+def get_metadata(data):
+    """ Given the original data set, extract useful data.
+
+    Example
+    -------
+    - date/time
+    - length of sample
+    - sample id
+    """
+    meta = {
+            'total_time': data[-1][0] - data[0][0],
+            'sample_rate': 1 / (data[1][0] - data[0][0]),
+            'start_date': time.ctime(data[0][0]),
+            'end_date': time.ctime(data[-1][0])
+        }
+
+    return meta
 
 
 def main():
@@ -394,11 +413,13 @@ def main():
 
     if save_data:
         save_path = os.path.abspath('%s.work' % output_filename)
-        os.mkdir(save_path)
+        try:
+            os.mkdir(save_path)
+        except OSError:
+            pass
 
     sanitized_data = sanitize(data, sloppy=sloppy, time_unit=time_unit)
     sample_rate = 1.0 / sanitized_data[1][0] - sanitized_data[0][0]
-
     # Remove the Gravity vector from the data using the provided axis
     # and angle.
     def dim(n):
@@ -450,6 +471,10 @@ def main():
     sigmas = do_svd(root_mean_square(filled_buckets))
     if save_data: save('\n'.join(str(x) for x in sigmas),
             '%s/singular_values.csv' % save_path)
+
+    if verbose and save_data: print('Writing metadata...')
+    if save_data: save(json.dumps(get_metadata(data)),
+            '%s/metadata.json' % save_path)
 
     # Output
     header = 'Bucket Name, Field, Value(s)\n'
@@ -503,7 +528,6 @@ def main():
         a1.set_title('Acceleration vs. Time')
         a1.grid(True)
         a1.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
-        #a1.set_xticklabels(a1.get_xticklabels(), fontsize=10)
 
         named = False
         ax = []
@@ -535,7 +559,6 @@ def main():
         a2.set_title('Acceleration vs. Time')
         a2.grid(True)
         a2.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
-        #a1.set_xticklabels(a1.get_xticklabels(), fontsize=10)
 
         named = False
         ax2 = []
@@ -555,7 +578,6 @@ def main():
             a2.set_ylabel(name)
             a2.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
             ax2.append(a2)
-        #ax[-1].set_xticklabels(ax[-1].get_xticklabels(), fontsize=10, visible=True)
         if save_data: fig2.savefig('%s/Sig_Freq_vs_Amp_and_x_vs_t.png' %
                 save_path)
 
