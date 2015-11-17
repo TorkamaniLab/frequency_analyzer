@@ -324,6 +324,24 @@ def get_metadata(data):
     return meta
 
 
+def make_output(meta, data):
+    """Given a data set and associated metadata, make a csv of
+    the output.
+    """
+    contents, col_names = [], []
+    cols = ['energy', 'avg_amp', 'max_amp']
+
+    for bucket, water in sorted(data.iteritems()):
+        contents.extend(water[val] for val in cols)
+        col_names.extend('{}_{}'.format(bucket, col) for col in cols)
+
+    col_names = ['date', 'time'] + col_names
+    date, time = meta['start_date'][0:11], meta['start_date'][12:-7]
+    contents = [date, time] + contents
+
+    return col_names, contents
+
+
 def main():
     """ Given an intial data set, and various other parameters, calculate
     the frequency spread of the data. Data provided should be in the form
@@ -358,11 +376,9 @@ def main():
 
     for o, a in opts:
         if o in ('-h', '--help'):
-            print(usage)
-            sys.exit(0)
+            quit(usage, err=False)
         if o in ('-f', '--format'):
-            print(frmt)
-            sys.exit(0)
+            quit(fmt, err=False)
         elif o in ('-o', '--outputfile'):
             output_filename = a
         elif o in ('-i', '--inputfile'):
@@ -472,15 +488,11 @@ def main():
     if save_data: save('\n'.join(str(x) for x in sigmas),
             '%s/singular_values.csv' % save_path)
 
-    if verbose and save_data: print('Writing metadata...')
-    if save_data: save(json.dumps(get_metadata(data)),
-            '%s/metadata.json' % save_path)
-
     # Output
-    header = 'Bucket Name, Field, Value(s)\n'
-    contents = serialize(sorted(list(filled_buckets.iteritems()),
-            cmp=lambda a,b: int(a[1]['max_min'][0] - b[1]['max_min'][0])))
-    contents += 'singular_values \n,%s' % (','.join(str(x) for x in sigmas))
+    meta = get_metadata(data)
+    header, contents = make_output(meta, filled_buckets)
+    header = ','.join(header)
+    contents = ','.join(str(x) for x in contents)
 
     if output_filename is None or print_results:
         print(header, contents)
