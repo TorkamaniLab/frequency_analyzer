@@ -10,6 +10,7 @@ from numpy import absolute, append, mean, ndarray, arange, std
 from pywt import wavedec
 from scipy.interpolate import splrep, splev
 from scipy.linalg import svdvals
+from scipy.signal import medfilt
 import matplotlib.pyplot as plt
 
 from bin.integrator import integrate
@@ -71,6 +72,9 @@ Options
                   Values are from 0<x<1. The default is 0.9. (e.x. 0.85)
 -m --svd        : Generate the single value decompositions of the given signal
                   matrix normalized by their std. This saves those values to a file.
+   --filter []  : Filter the interpolated data with one of the following 
+                  filters:
+                    - median
 """.format(os.path.basename(__file__))
 
 frmt="""
@@ -105,7 +109,7 @@ def save(data, filename, header=''):
     """ Saves the given data to a file. """
     print(filename)
     with open(filename, 'w') as f:
-        f.write('{}\n{}'.format(header,str(data)))
+        f.write('{}\n{}\n'.format(header,str(data)))
 
 
 def serialize(data_to_serialize):
@@ -279,6 +283,32 @@ def root_mean_square(buckets):
     return buckets
 
 
+def filter_with_filter(filter, data):
+    """ Apply the given filter to the data. Filters must be one of the 
+    following:
+        - median
+    """
+    filter_fn = None
+    if filter = 'median':
+        filter_fn = medfilt
+    else:
+        return data
+    
+    data_minus_time = []
+    for t, x, y, z in A_t_i:
+        data_minus_time.append((x, y, z))
+    data_minus_time = filter_fn(data_minus_time)
+    
+    # Put it back
+    new_data = []
+    for a_t_i, temp in izip(A_t_i, data_minus_time):
+        t = a_t_i[0]
+        x, y, z = temp
+        
+        new_data.append((t, x, y, z))
+    return new_data    
+
+
 def do_svd(buckets):
     """ Given a set of frequency bins, computes the singluar values
     of the feature vector matrix.
@@ -314,11 +344,12 @@ def get_metadata(data):
     - length of sample
     - sample id
     """
+    start, end = time.gmtime(data[0][0]), time.gmtime(data[-1][0])
     meta = {
             'total_time': data[-1][0] - data[0][0],
             'sample_rate': 1 / (data[1][0] - data[0][0]),
-            'start_date': time.ctime(data[0][0]),
-            'end_date': time.ctime(data[-1][0])
+            'start_date': '%s-%s %s:%s' % start[1:5],
+            'end_date': ' %s-%s %s:%s' % end[1:5]
         }
 
     return meta
@@ -336,8 +367,8 @@ def make_output(meta, data):
         col_names.extend('{}_{}'.format(bucket, col) for col in cols)
 
     col_names = ['date', 'time'] + col_names
-    date, time = meta['start_date'][0:11], meta['start_date'][12:-7]
-    contents = [date, time] + contents
+    date = meta['start_date']
+    contents = [date] + contents
 
     return col_names, contents
 
@@ -362,6 +393,7 @@ def main():
     downsample = 25.0
     sig_factor = 0.9
     levels = 5
+    filter = None
 
     try:
         opts, args = getopt.getopt(sys.argv[1:], all_args, long_args)
@@ -406,6 +438,8 @@ def main():
             print_results = True
         elif o in ('-e', '--save'):
             save_data = True
+        elif o in ('--filter'):
+            filter = True
         elif o in ('-t', '--time'):
             time_unit = a
         elif o in ('-m', '--svd'):
@@ -447,7 +481,7 @@ def main():
     for t, x, y, z in sanitized_data:
         a_x, a_y, a_z = dim(x), dim(y), dim(z)
         A_t_d.append((t, a_x, a_y, a_z))
-
+        
     A_t = []
     if gravity:
         r = [0, 0, 9.81]
@@ -475,6 +509,8 @@ def main():
         A_t = A_t_d
 
     A_t_i = do_interpolate(A_t, downsample)
+    
+    A_t_i = filter_with_filter(filter, A_t_i)
 
     if verbose: print('Extracting Frequencies...')
     filled_buckets = get_frequencies(A_t_i, wavelet='db8',
