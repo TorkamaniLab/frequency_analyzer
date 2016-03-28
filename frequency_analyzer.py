@@ -72,7 +72,7 @@ Options
                   Values are from 0<x<1. The default is 0.9. (e.x. 0.85)
 -m --svd        : Generate the single value decompositions of the given signal
                   matrix normalized by their std. This saves those values to a file.
-   --filter []  : Filter the interpolated data with one of the following 
+   --filter []  : Filter the interpolated data with one of the following
                   filters:
                     - median
 """.format(os.path.basename(__file__))
@@ -284,29 +284,29 @@ def root_mean_square(buckets):
 
 
 def filter_with_filter(filter, data):
-    """ Apply the given filter to the data. Filters must be one of the 
+    """ Apply the given filter to the data. Filters must be one of the
     following:
         - median
     """
     filter_fn = None
-    if filter = 'median':
+    if filter == 'median':
         filter_fn = medfilt
     else:
         return data
-    
+
     data_minus_time = []
-    for t, x, y, z in A_t_i:
+    for t, x, y, z in data:
         data_minus_time.append((x, y, z))
     data_minus_time = filter_fn(data_minus_time)
-    
+
     # Put it back
     new_data = []
-    for a_t_i, temp in izip(A_t_i, data_minus_time):
+    for a_t_i, temp in izip(data, data_minus_time):
         t = a_t_i[0]
         x, y, z = temp
-        
+
         new_data.append((t, x, y, z))
-    return new_data    
+    return new_data
 
 
 def do_svd(buckets):
@@ -344,7 +344,7 @@ def get_metadata(data):
     - length of sample
     - sample id
     """
-    start, end = time.gmtime(data[0][0]), time.gmtime(data[-1][0])
+    start, end = time.localtime(data[0][0]/1000), time.localtime(data[-1][0]/1000)
     meta = {
             'total_time': data[-1][0] - data[0][0],
             'sample_rate': 1 / (data[1][0] - data[0][0]),
@@ -366,7 +366,7 @@ def make_output(meta, data):
         contents.extend(water[val] for val in cols)
         col_names.extend('{}_{}'.format(bucket, col) for col in cols)
 
-    col_names = ['date', 'time'] + col_names
+    col_names = ['date_time'] + col_names
     date = meta['start_date']
     contents = [date] + contents
 
@@ -439,7 +439,7 @@ def main():
         elif o in ('-e', '--save'):
             save_data = True
         elif o in ('--filter'):
-            filter = True
+            filter = a
         elif o in ('-t', '--time'):
             time_unit = a
         elif o in ('-m', '--svd'):
@@ -481,7 +481,7 @@ def main():
     for t, x, y, z in sanitized_data:
         a_x, a_y, a_z = dim(x), dim(y), dim(z)
         A_t_d.append((t, a_x, a_y, a_z))
-        
+
     A_t = []
     if gravity:
         r = [0, 0, 9.81]
@@ -509,7 +509,7 @@ def main():
         A_t = A_t_d
 
     A_t_i = do_interpolate(A_t, downsample)
-    
+
     A_t_i = filter_with_filter(filter, A_t_i)
 
     if verbose: print('Extracting Frequencies...')
