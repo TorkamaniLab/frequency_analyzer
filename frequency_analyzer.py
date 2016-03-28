@@ -13,7 +13,7 @@ from scipy.linalg import svdvals
 from scipy.signal import medfilt
 import matplotlib.pyplot as plt
 
-from bin.integrator import integrate
+from bin.filters import Filter
 from bin.matrix import transformation_matrix, transform
 from bin.sanitizer import sanitize
 from bin.timer import timeit
@@ -75,6 +75,10 @@ Options
    --filter []  : Filter the interpolated data with one of the following
                   filters:
                     - median
+                    - low_pass
+                    - high_pass
+                  Note: For low/high pass filters, a cutoff must be supplied.
+-c --cutoff []  : A cutoff frequency to use in filtering low and high pass filters (Hz).
 """.format(os.path.basename(__file__))
 
 frmt="""
@@ -90,10 +94,11 @@ Optionally, you may omit the header if the --no-header
 option is provided.
 """
 
-all_args = 'hvi:o:s:a:pet:fngrb:k:d:l:'
+all_args = 'hvi:o:s:a:pet:fngrb:k:d:l:c:'
 long_args = ['help', 'verbose', 'inputfile=', 'outputfile=', 'sloppy=',
     'angle=', 'print', 'save', 'time=', 'format', 'no-header', 'graph',
-    'no-gravity', 'bins=', 'sig-factor=', 'downsample=', 'levels=', 'filter=']
+    'no-gravity', 'bins=', 'sig-factor=', 'downsample=', 'levels=',
+    'filter=', 'cutoff=']
 
 g = 9.81 # m/s**2
 
@@ -283,14 +288,20 @@ def root_mean_square(buckets):
     return buckets
 
 
-def filter_with_filter(filter, data):
+def filter_with_filter(filter, data, sample_rate, cutoff=None):
     """ Apply the given filter to the data. Filters must be one of the
     following:
         - median
+        - low_pass
+        - high_pass
     """
     filter_fn = None
     if filter == 'median':
         filter_fn = medfilt
+    elif filter == 'low_pass':
+        filter_fn = Filter(len(data), sample_rate, cutoff, 'low')
+    elif filter == 'high_pass':
+        filter_fn = Filter(len(data), sample_rate, cutoff, 'high')
     else:
         return data
 
@@ -394,6 +405,7 @@ def main():
     sig_factor = 0.9
     levels = 5
     filter = None
+    cutoff = None
 
     try:
         opts, args = getopt.getopt(sys.argv[1:], all_args, long_args)
@@ -444,6 +456,8 @@ def main():
             time_unit = a
         elif o in ('-m', '--svd'):
             svd = True
+        elif o in ('-c', '--cutoff'):
+            cutoff = float(a)
         elif o in ('-a', '--angle'):
             axis_angles = [k for k in a.split(',')]
             for val in axis_angles:
@@ -510,7 +524,7 @@ def main():
 
     A_t_i = do_interpolate(A_t, downsample)
 
-    A_t_i = filter_with_filter(filter, A_t_i)
+    A_t_i = filter_with_filter(filter, A_t_i, downsample, cutoff)
 
     if verbose: print('Extracting Frequencies...')
     filled_buckets = get_frequencies(A_t_i, wavelet='db8',
