@@ -185,11 +185,11 @@ def do_interpolate(F_t, downsample=25.0):
 
 
 def get_frequencies(A_t, wavelet='db8', levels=5, sample_rate=25.0):
-    """ Given a sequence of (t, x, y, z) points in a uniform
+    """ Given a sequence of (t, s) points in a uniform
     distribution, extract the frequencies using a Discrete Wavelet
     Transform and the provided wavelet.
 
-    :params A_t: A sequence of (t, x, y, z) points at a fixed
+    :params A_t: A sequence of (t, s) points at a fixed
     sample rate.
     :params wavelet: The wavelet to use in the DWT.
     :params sample_rate: The sample rate of the data in Hz.
@@ -201,26 +201,19 @@ def get_frequencies(A_t, wavelet='db8', levels=5, sample_rate=25.0):
 
     Example
     -------
-    sample = [(0, 1, 2, 3), (0.1, 1, 3, 2), ...]
+    sample = [(0, 2), (0.1, 3), ...]
     buckets = get_frequency_buckets(sample, 10)
     buckets = {
         '2.5-0.0Hz': {
             max_min: (2.5, 0.0)
             scale: [1, 2, 3, 4, ...],
-            x: [2, 0, -3, 4, ...],
-            y: [1, ...],
-            z: [-0.3, ...]
+            s: [2, 0, -3, 4, ...],
             },
         ...
         }
     """
-    empty_buckets = []
-    for axis in [0, 1, 2]:
-        f_t  = []
-        for a_t_i in A_t:
-            f_t.append(a_t_i[axis+1])
-        bucket = wavedec(f_t, wavelet, level=levels)
-        empty_buckets.append(bucket)
+    data = [s for t, s in A_t]
+    empty_bucket = wavedec(data, wavelet, level=levels)
 
     bins = [(sample_rate, sample_rate/2.0),]
     for i in range(levels-1):
@@ -232,18 +225,17 @@ def get_frequencies(A_t, wavelet='db8', levels=5, sample_rate=25.0):
     bin_names = ['{}-{}Hz'.format(min_, max_) for max_, min_ in bins]
 
     filled_buckets = {}
-    for index, axis in enumerate(['x', 'y', 'z']):
-        for name, max_min in izip(bin_names, bins):
-            if name not in filled_buckets.keys(): filled_buckets[name] = {}
-            filled_buckets[name]['max_min'] =  max_min
-        for name, bucket in izip(bin_names, enumerate(empty_buckets[index])):
-            i, values_per_axis = bucket
-            if axis not in filled_buckets[name].keys(): filled_buckets[name][axis] = []
-            filled_buckets[name][axis] = values_per_axis
-            # Add the scales.
-            if 'scale' not in filled_buckets[name].keys():
-                filled_buckets[name]['scale'] = arange(0, len(A_t),
-                       float(len(A_t))/float(len(values_per_axis)))
+    for name, max_min in izip(bin_names, bins):
+        if name not in filled_buckets.keys(): filled_buckets[name] = {}
+        filled_buckets[name]['max_min'] =  max_min
+    for name, bucket in izip(bin_names, enumerate(empty_bucket)):
+        i, values_per_axis = bucket
+        if 's' not in filled_buckets[name].keys(): filled_buckets[name]['s'] = []
+        filled_buckets[name]['s'] = values_per_axis
+        # Add the scales.
+        if 'scale' not in filled_buckets[name].keys():
+            filled_buckets[name]['scale'] = arange(0, len(A_t),
+                   float(len(A_t))/float(len(values_per_axis)))
     return filled_buckets
 
 
@@ -263,7 +255,7 @@ def do_calculations(buckets, sig_factor=0.9):
     """
 
     for name, data in buckets.iteritems():
-        for axis in ['x', 'y', 'z']:
+        for axis in ['s']:
             vals = data[axis]
             data['max_amp'] = max(vals)
             data['avg_amp'] = float(sum(vals)) / float(len(vals))
@@ -276,16 +268,14 @@ def do_calculations(buckets, sig_factor=0.9):
     return buckets
 
 
-def root_mean_square(buckets):
+def root_mean_square(data):
     """ Combine the 3-D signal into a 1-D signal using
     x = sqrt(x**2 + y**2 + z**2)
     """
-    for name, data in buckets.iteritems():
-        rms = []
-        for x, y, z in izip(data['x'], data['y'], data['z']):
-            rms.append(sqrt(x**2 + y**2 + z**2))
-        data['rms'] = rms
-    return buckets
+    rms = []
+    for t, x, y, z in data:
+        rms.append((t, sqrt(x**2 + y**2 + z**2)))
+    return rms
 
 
 def filter_with_filter(filter, data, sample_rate, cutoff=None):
@@ -297,7 +287,7 @@ def filter_with_filter(filter, data, sample_rate, cutoff=None):
     """
     filter_fn = None
     if filter == 'median':
-        filter_fn = medfilt
+        filter_fn = lambda x: medfilt(x, 5)
     elif filter == 'low_pass':
         filter_fn = Filter(len(data), sample_rate, cutoff, 'low')
     elif filter == 'high_pass':
@@ -306,17 +296,17 @@ def filter_with_filter(filter, data, sample_rate, cutoff=None):
         return data
 
     data_minus_time = []
-    for t, x, y, z in data:
-        data_minus_time.append((x, y, z))
+    for t, s in data:
+        data_minus_time.append(s)
     data_minus_time = filter_fn(data_minus_time)
 
     # Put it back
     new_data = []
     for a_t_i, temp in izip(data, data_minus_time):
         t = a_t_i[0]
-        x, y, z = temp
+        s = temp
 
-        new_data.append((t, x, y, z))
+        new_data.append((t, s))
     return new_data
 
 
@@ -328,13 +318,13 @@ def do_svd(buckets):
     """
     l = 0
     for _, data in buckets.iteritems():
-        if len(data['rms']) > l: l = len(data['rms'])
+        if len(data['scale']) > l: l = len(data['scale'])
 
     M = []
     l_t_new = xrange(l)
     for name, data in buckets.iteritems():
         _, min_ = data['max_min']
-        rms = data['rms']
+        rms = data['scale']
         l_t = xrange(len(rms))
         tck = splrep(l_t, rms, s=0)
         rms_new = splev(l_t_new, tck, der=0)
@@ -524,17 +514,19 @@ def main():
 
     A_t_i = do_interpolate(A_t, downsample)
 
-    A_t_i = filter_with_filter(filter, A_t_i, downsample, cutoff)
+    combined = root_mean_square(A_t_i)
+
+    filtered = filter_with_filter(filter, combined, downsample, cutoff)
 
     if verbose: print('Extracting Frequencies...')
-    filled_buckets = get_frequencies(A_t_i, wavelet='db8',
+    filled_buckets = get_frequencies(filtered, wavelet='db8',
             levels=levels, sample_rate=downsample)
 
     if verbose: print('Picking out the cool stuff...')
     do_calculations(filled_buckets, sig_factor=sig_factor)
 
     if verbose: print('Calculating SVD...')
-    sigmas = do_svd(root_mean_square(filled_buckets))
+    sigmas = do_svd(filled_buckets)
     if save_data: save('\n'.join(str(x) for x in sigmas),
             '%s/singular_values.csv' % save_path)
 
@@ -557,18 +549,16 @@ def main():
     for name, data in sorted(list(filled_buckets.iteritems()),
             cmp=lambda a,b: int(a[1]['max_min'][0] - b[1]['max_min'][0])):
         new_data = []
-        for x, y, z in izip(data['x'], data['y'], data['z']):
-            new_data.append((x, y, z))
+        for s in data['s']:
+            new_data.append(s)
         freqs.append((name, data['scale'], new_data))
 
         new_sig_data = []
-        for x, y, z in izip(data['sig_freq_x'], data['sig_freq_y'],
-                data['sig_freq_z']):
-            new_sig_data.append((x, y, z))
+        for s in data['sig_freq_s']:
+            new_sig_data.append(s)
         sig_freqs.append((name, data['scale'], new_sig_data))
 
-        sorted_freqs.append((data['max_min'][0], name,
-            (data['x'], data['y'], data['z'])))
+        sorted_freqs.append((data['max_min'][0], name, data['s']))
 
     tim, dist = [], []
     for t, x, y, z in A_t_i:
@@ -606,7 +596,7 @@ def main():
             a.set_xticklabels(a.get_xticklabels(), visible=False)
             a.grid(True)
             a.set_ylabel(name)
-            a.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
+            a.legend(['s'], loc='lower right', fontsize='x-small')
             ax.append(a)
         if save_data: fig.savefig('%s/Freq_vs_Amp_and_x_vs_t.png' % save_path)
 
@@ -638,7 +628,7 @@ def main():
             a2.set_xticklabels(a2.get_xticklabels(), visible=False)
             a2.grid(True)
             a2.set_ylabel(name)
-            a2.legend(['x', 'y', 'z'], loc='lower right', fontsize='x-small')
+            a2.legend(['s'], loc='lower right', fontsize='x-small')
             ax2.append(a2)
         if save_data: fig2.savefig('%s/Sig_Freq_vs_Amp_and_x_vs_t.png' %
                 save_path)
@@ -649,9 +639,9 @@ def main():
         l = len(sorted_freqs)
         for i, val in enumerate(sorted_freqs):
             _, name, data =  val
-            x, y, z = data
+            s = data
             a3 = fig3.add_subplot(l, 1, i+1)
-            a3.hist([x, y, z], bins=30)
+            a3.hist([s], bins=30)
             a3.set_ylabel(name)
         if save_data: fig3.savefig('%s/Histogram.png' % save_path)
 
