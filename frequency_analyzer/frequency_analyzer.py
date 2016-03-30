@@ -11,7 +11,9 @@ from pywt import wavedec
 from scipy.interpolate import splrep, splev
 from scipy.linalg import svdvals
 from scipy.signal import medfilt
-import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')
+from matplotlib import pyplot
 
 from bin.filters import Filter
 from bin.matrix import transformation_matrix, transform
@@ -258,7 +260,7 @@ def do_calculations(buckets, sig_factor=0.9):
         for axis in ['s']:
             vals = data[axis]
             data['max_amp'] = max(vals)
-            data['avg_amp'] = float(sum(vals)) / float(len(vals))
+            data['avg_amp'] = float(sum(abs(vals))) / float(len(vals))
             data['energy'] = sum(abs(vals))
             field = 'sig_thresh_{}'.format(axis)
             sig_threshold = sig_factor * data['max_amp']
@@ -570,7 +572,7 @@ def main():
         # Main Frequency Plot
 
         num_plots = len(freqs) + 1
-        fig = plt.figure(figsize=(12, 10))
+        fig = pyplot.figure(figsize=(12, 10))
 
         # Distance vs. Time
         a1 = fig.add_subplot(num_plots, 1, 1)
@@ -601,7 +603,7 @@ def main():
         if save_data: fig.savefig('%s/Freq_vs_Amp_and_x_vs_t.png' % save_path)
 
         # Significant Frequency Plot
-        fig2 = plt.figure(figsize=(12, 10))
+        fig2 = pyplot.figure(figsize=(12, 10))
 
         # Distance v. Time (again)
         a2 = fig2.add_subplot(num_plots, 1, 1)
@@ -635,7 +637,7 @@ def main():
 
         # Histogram
 
-        fig3 = plt.figure(figsize=(12, 10))
+        fig3 = pyplot.figure(figsize=(12, 10))
         l = len(sorted_freqs)
         for i, val in enumerate(sorted_freqs):
             _, name, data =  val
@@ -645,7 +647,7 @@ def main():
             a3.set_ylabel(name)
         if save_data: fig3.savefig('%s/Histogram.png' % save_path)
 
-        if graph: plt.show()
+        if graph: pyplot.show()
     except Exception as e:
         print(e)
         print('Displaying and generating graphs isn\'t supported.')
